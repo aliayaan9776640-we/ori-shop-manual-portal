@@ -1,0 +1,10 @@
+{
+  "$schema": "https://rork.com/schema/rork.json",
+  "apps": [
+    {
+      "name": "Ori Shop Management Portal",
+      "path": "web",
+      "framework": "web"
+    }
+  ]
+}
