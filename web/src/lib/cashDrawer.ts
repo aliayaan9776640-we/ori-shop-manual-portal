@@ -12,6 +12,26 @@ export interface DenominationCount {
   count: number;
 }
 
+export type CashOutStatus = "pending" | "approved" | "rejected";
+
+export interface CashOutRequest {
+  id: string;
+  drawerId: string;
+  amount: number;
+  purpose: string;
+  status: CashOutStatus;
+  requestedBy: string;
+  requestedByName: string;
+  requestedAt: string;
+  approvedBy?: string | null;
+  approvedByName?: string | null;
+  approvedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedByName?: string | null;
+  rejectedAt?: string | null;
+  adminNote?: string | null;
+}
+
 export interface CashDrawer {
   id: string;
   cashierId: string;
@@ -48,6 +68,8 @@ export interface CashDrawer {
   /** User id of the cashier who closed the drawer — may differ from opener. */
   closedBy?: string | null;
   closedByName?: string | null;
+  /** Cash taken out from drawer. Pending requests do NOT reduce expected cash. */
+  cashOutRequests?: CashOutRequest[];
 }
 
 interface CashDrawerState {
@@ -71,8 +93,25 @@ interface CashDrawerState {
   addChangeGiven: (cashierId: string, amount: number) => void;
   /** Reverse change given (e.g. on voided cash sale). Clamped at 0. */
   reverseChangeGiven: (cashierId: string, amount: number) => void;
-  /** Accumulate cash used (paid out) for the cashier's currently-open drawer */
+  /** Legacy direct cash used method; kept for old callers. Prefer requestCashOut + approveCashOut. */
   addCashUsed: (cashierId: string, amount: number) => void;
+  requestCashOut: (args: {
+    drawerId: string;
+    amount: number;
+    purpose: string;
+    requestedBy: string;
+    requestedByName: string;
+  }) => Promise<CashOutRequest>;
+  approveCashOut: (
+    drawerId: string,
+    requestId: string,
+    admin: { id: string; name: string; note?: string }
+  ) => Promise<void>;
+  rejectCashOut: (
+    drawerId: string,
+    requestId: string,
+    admin: { id: string; name: string; note?: string }
+  ) => Promise<void>;
   /** Currently open drawer for a given cashier (legacy lookup). */
   currentForCashier: (cashierId: string) => CashDrawer | undefined;
   /** Currently open drawer for the shop (shared across all cashiers). */
@@ -125,6 +164,7 @@ interface CashDrawerRow {
   opened_by_name: string | null;
   closed_by: string | null;
   closed_by_name: string | null;
+  cash_out_requests?: CashOutRequest[] | null;
 }
 
 const num = (v: number | string | null | undefined): number => {
@@ -168,6 +208,7 @@ const fromRow = (r: CashDrawerRow): CashDrawer => ({
   openedByName: r.opened_by_name ?? r.cashier_name,
   closedBy: r.closed_by,
   closedByName: r.closed_by_name,
+  cashOutRequests: Array.isArray(r.cash_out_requests) ? r.cash_out_requests : [],
 });
 
 const toInsertRow = (d: CashDrawer): Record<string, unknown> => ({
@@ -195,6 +236,7 @@ const toInsertRow = (d: CashDrawer): Record<string, unknown> => ({
   opened_by_name: d.openedByName ?? d.cashierName ?? null,
   closed_by: d.closedBy ?? null,
   closed_by_name: d.closedByName ?? null,
+  cash_out_requests: d.cashOutRequests ?? [],
 });
 
 /**
@@ -205,14 +247,39 @@ const persistDrawer = async (
   d: CashDrawer
 ): Promise<{ ok: boolean; error?: string }> => {
   if (!isSupabaseConfigured) return { ok: true };
+
+  const fullRow = toInsertRow(d);
   const { error } = await supabase
     .from("cash_drawers")
-    .upsert(toInsertRow(d), { onConflict: "id" });
-  if (error) {
-    console.warn("[cash_drawers.upsert]", error.message);
-    return { ok: false, error: error.message };
+    .upsert(fullRow, { onConflict: "id" });
+
+  if (!error) return { ok: true };
+
+  // Backward-compatible fallback: if your Supabase table does not yet have
+  // cash_out_requests JSONB column, save all existing drawer fields and keep
+  // requests in local persisted state. Add the SQL column later for multi-device permanence.
+  const missingColumn =
+    (error as { code?: string }).code === "PGRST204" ||
+    /cash_out_requests|schema cache|column/i.test(error.message);
+
+  if (missingColumn) {
+    const legacyRow = { ...fullRow };
+    delete legacyRow.cash_out_requests;
+    const retry = await supabase
+      .from("cash_drawers")
+      .upsert(legacyRow, { onConflict: "id" });
+    if (!retry.error) {
+      console.warn(
+        "[cash_drawers.upsert] cash_out_requests column missing; drawer saved without server-side cash-out requests"
+      );
+      return { ok: true };
+    }
+    console.warn("[cash_drawers.upsert.retry]", retry.error.message);
+    return { ok: false, error: retry.error.message };
   }
-  return { ok: true };
+
+  console.warn("[cash_drawers.upsert]", error.message);
+  return { ok: false, error: error.message };
 };
 
 export const useCashDrawers = create<CashDrawerState>()(
@@ -245,28 +312,42 @@ export const useCashDrawers = create<CashDrawerState>()(
         });
       },
       open: async (cashierId, cashierName, openingCash) => {
-        // Per-cashier rule: each cashier may have at most ONE open drawer.
+        // Shop-wide rule: only ONE open drawer at a time.
         // Authoritative check via Supabase; local cache may be stale.
         if (isSupabaseConfigured) {
           const { data, error } = await supabase
             .from("cash_drawers")
             .select("id, cashier_id, cashier_name, opened_by_name, opened_at")
             .eq("status", "open")
-            .eq("cashier_id", cashierId)
             .limit(1)
             .maybeSingle();
           if (!error && data) {
+            // Permanent refresh-safe fix:
+            // If this same cashier already has an open drawer, return that
+            // drawer instead of creating a duplicate or blocking after refresh.
+            await get().load().catch(() => {});
+            const existingDrawer = get().drawers.find(
+              (d) => d.id === data.id && d.status === "open"
+            );
+
+            if (existingDrawer && existingDrawer.cashierId === cashierId) {
+              return existingDrawer;
+            }
+
             throw new Error(
-              "You already have an open drawer. Close it before opening a new one."
+              "A cash drawer is already open. Close it before opening a new one."
             );
           }
         } else {
-          const existing = get().drawers.find(
-            (d) => d.status === "open" && d.cashierId === cashierId
-          );
+          const existing = get().drawers.find((d) => d.status === "open");
           if (existing) {
+            // Same cashier refresh-safe fix for local persisted state.
+            if (existing.cashierId === cashierId) {
+              return existing;
+            }
+
             throw new Error(
-              "You already have an open drawer. Close it before opening a new one."
+              "A cash drawer is already open. Close it before opening a new one."
             );
           }
         }
@@ -280,6 +361,7 @@ export const useCashDrawers = create<CashDrawerState>()(
           openedAt: new Date().toISOString(),
           status: "open",
           openingCash,
+          cashOutRequests: [],
         };
         const r = await persistDrawer(drawer);
         if (!r.ok) {
@@ -309,6 +391,14 @@ export const useCashDrawers = create<CashDrawerState>()(
       close: async (id, patch, closer) => {
         const existing = get().drawers.find((d) => d.id === id);
         if (!existing) return;
+        const pendingCashOut = (existing.cashOutRequests ?? []).filter(
+          (r) => r.status === "pending"
+        );
+        if (pendingCashOut.length > 0) {
+          throw new Error(
+            "Pending cash out approval exists. Drawer cannot be closed until admin approves or rejects."
+          );
+        }
         const updated: CashDrawer = {
           ...existing,
           ...patch,
@@ -437,6 +527,136 @@ export const useCashDrawers = create<CashDrawerState>()(
         const updated = next.find((d) => d.status === "open");
         if (updated) void persistDrawer(updated);
       },
+      requestCashOut: async ({ drawerId, amount, purpose, requestedBy, requestedByName }) => {
+        if (!amount || amount <= 0) throw new Error("Enter a valid cash-out amount");
+        if (!purpose.trim()) throw new Error("Purpose/reason is required");
+
+        const existing = get().drawers.find((d) => d.id === drawerId);
+        if (!existing || existing.status !== "open") {
+          throw new Error("No open drawer found for this cash-out request");
+        }
+
+        const req: CashOutRequest = {
+          id: `co_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+          drawerId,
+          amount: +amount.toFixed(2),
+          purpose: purpose.trim(),
+          status: "pending",
+          requestedBy,
+          requestedByName,
+          requestedAt: new Date().toISOString(),
+        };
+
+        const updated: CashDrawer = {
+          ...existing,
+          cashOutRequests: [req, ...(existing.cashOutRequests ?? [])],
+        };
+
+        set({ drawers: get().drawers.map((d) => (d.id === drawerId ? updated : d)) });
+        const r = await persistDrawer(updated);
+        if (!r.ok) throw new Error(r.error ?? "Failed to save cash-out request");
+
+        writeAudit({
+          entity: "cash_drawer",
+          entityId: drawerId,
+          action: "update",
+          before: existing,
+          after: updated,
+          reason: `${requestedByName} requested ${req.amount.toFixed(2)} cash out: ${req.purpose}`,
+        });
+
+        return req;
+      },
+      approveCashOut: async (drawerId, requestId, admin) => {
+        const existing = get().drawers.find((d) => d.id === drawerId);
+        if (!existing) throw new Error("Drawer not found");
+
+        const requests = existing.cashOutRequests ?? [];
+        const target = requests.find((r) => r.id === requestId);
+        if (!target) throw new Error("Cash-out request not found");
+        if (target.status !== "pending") throw new Error("This request is already decided");
+
+        const updatedRequests = requests.map((r) =>
+          r.id === requestId
+            ? {
+                ...r,
+                status: "approved" as const,
+                approvedBy: admin.id,
+                approvedByName: admin.name,
+                approvedAt: new Date().toISOString(),
+                adminNote: admin.note ?? r.adminNote ?? null,
+              }
+            : r
+        );
+
+        const approvedTotal = updatedRequests
+          .filter((r) => r.status === "approved")
+          .reduce((sum, r) => sum + r.amount, 0);
+
+        const updated: CashDrawer = {
+          ...existing,
+          cashOutRequests: updatedRequests,
+          cashUsed: +approvedTotal.toFixed(2),
+        };
+
+        set({ drawers: get().drawers.map((d) => (d.id === drawerId ? updated : d)) });
+        const save = await persistDrawer(updated);
+        if (!save.ok) throw new Error(save.error ?? "Failed to approve cash-out request");
+
+        writeAudit({
+          entity: "cash_drawer",
+          entityId: drawerId,
+          action: "update",
+          before: existing,
+          after: updated,
+          reason: `${admin.name} approved cash-out ${target.amount.toFixed(2)}: ${target.purpose}`,
+        });
+      },
+      rejectCashOut: async (drawerId, requestId, admin) => {
+        const existing = get().drawers.find((d) => d.id === drawerId);
+        if (!existing) throw new Error("Drawer not found");
+
+        const requests = existing.cashOutRequests ?? [];
+        const target = requests.find((r) => r.id === requestId);
+        if (!target) throw new Error("Cash-out request not found");
+        if (target.status !== "pending") throw new Error("This request is already decided");
+
+        const updatedRequests = requests.map((r) =>
+          r.id === requestId
+            ? {
+                ...r,
+                status: "rejected" as const,
+                rejectedBy: admin.id,
+                rejectedByName: admin.name,
+                rejectedAt: new Date().toISOString(),
+                adminNote: admin.note ?? r.adminNote ?? null,
+              }
+            : r
+        );
+
+        const approvedTotal = updatedRequests
+          .filter((r) => r.status === "approved")
+          .reduce((sum, r) => sum + r.amount, 0);
+
+        const updated: CashDrawer = {
+          ...existing,
+          cashOutRequests: updatedRequests,
+          cashUsed: +approvedTotal.toFixed(2),
+        };
+
+        set({ drawers: get().drawers.map((d) => (d.id === drawerId ? updated : d)) });
+        const save = await persistDrawer(updated);
+        if (!save.ok) throw new Error(save.error ?? "Failed to reject cash-out request");
+
+        writeAudit({
+          entity: "cash_drawer",
+          entityId: drawerId,
+          action: "update",
+          before: existing,
+          after: updated,
+          reason: `${admin.name} rejected cash-out ${target.amount.toFixed(2)}: ${target.purpose}`,
+        });
+      },
       currentForCashier: (cashierId) =>
         get().drawers.find(
           (d) => d.cashierId === cashierId && d.status === "open"
@@ -444,6 +664,9 @@ export const useCashDrawers = create<CashDrawerState>()(
       currentOpenDrawer: () =>
         get().drawers.find((d) => d.status === "open"),
     }),
-    { name: "ori-cash-drawers" }
+    {
+      name: "ori-cash-drawers",
+      partialize: (state) => ({ drawers: state.drawers }),
+    }
   )
 );

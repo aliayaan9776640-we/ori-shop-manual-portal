@@ -428,6 +428,7 @@ export const useStore = create<AppState>()((set, get) => ({
       const { data: profiles, error: pErr } = await supabase
         .from("profiles")
         .select("*")
+        .eq("active", true)
         .order("created_at", { ascending: true });
       logErr("profiles.select", pErr);
       const users: User[] = (profiles as ProfileRow[] | null)?.map(rowToUser) ?? [];
@@ -452,27 +453,25 @@ export const useStore = create<AppState>()((set, get) => ({
           return;
         }
       }
-
-      // If we have a session but no profile row exists yet, create one.
       let resolvedUid = uid;
+
       if (uid && !users.find((u) => u.id === uid)) {
-        const email = sessionData.session?.user.email ?? "";
-        const { data: newProfile, error: insErr } = await supabase
-          .from("profiles")
-          .insert({
-            id: uid,
-            email,
-            full_name: email,
-            role: "cashier",
-            active: true,
-          })
-          .select()
-          .single();
-        logErr("profiles.upsert-self", insErr);
-        if (newProfile) {
-          users.push(rowToUser(newProfile as ProfileRow));
+        console.warn("[bootstrap] deleted/inactive employee tried login");
+
+        try {
+          await supabase.auth.signOut();
+        } catch (e) {
+          console.warn("[bootstrap] signOut warning", e);
         }
-        resolvedUid = uid;
+
+        set({
+          users,
+          currentUserId: null,
+          hydrated: true,
+          bootstrapping: false,
+        });
+
+        return;
       }
 
       const [
@@ -1206,16 +1205,22 @@ export const useStore = create<AppState>()((set, get) => ({
 
   deleteUser: (uid) => {
     set({ users: get().users.filter((u) => u.id !== uid) });
+
     if (isSupabaseConfigured) {
-      // We can only soft-delete the profile from the client;
-      // deleting the auth user requires the service-role key.
       supabase
         .from("profiles")
         .update({ active: false })
         .eq("id", uid)
-        .then(({ error }) => logErr("profiles.deactivate", error));
+        .then(({ error }) => {
+          if (error) {
+            notifyWriteError("profiles.deactivate", error);
+          } else {
+            get().log("user.deactivate", `Deactivated employee user ${uid}`);
+          }
+        });
+    } else {
+      get().log("user.delete", `Deleted user ${uid}`);
     }
-    get().log("user.delete", `Deleted user ${uid}`);
   },
 
   /* ------------------------ products ------------------------------- */
