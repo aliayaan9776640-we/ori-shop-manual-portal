@@ -61,6 +61,7 @@ const NAV: NavItem[] = [
   { to: "/credit-sends", label: "Pending Sends", icon: SendIcon, roles: ["admin", "cashier"] },
   { to: "/online-orders", label: "Online Orders", icon: StoreIcon, roles: ["admin", "cashier"] },
   { to: "/online-shop", label: "Online Shop", icon: Megaphone, roles: ["admin"] },
+  { to: "/preorder-admin", label: "Pre-Order Admin", icon: Package, roles: ["admin", "storekeeper"] },
   { to: "/customer-approvals", label: "Customer Approvals", icon: UserCheck, roles: ["admin", "cashier"] },
   { to: "/consignment", label: "Consignment", icon: HandCoins, roles: ["admin", "storekeeper", "cashier"] },
   { to: "/approvals", label: "Approvals", icon: Bell, roles: ["admin"] },

@@ -2,7 +2,7 @@
 // Supabase Edge Function: admin-create-user
 //
 // Creates a Supabase Auth user with email confirmation already set,
-// then upserts the matching `profiles` row. Requires the caller to be
+// then upserts the matching `profiles` row. Requires the caller to +be
 // authenticated as an admin (verified via the `profiles` table).
 //
 // Deploy:
@@ -44,9 +44,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json(405, { error: "Method not allowed" });
   }
 
-  const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-  const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const SUPABASE_URL = Deno.env.get("PROJECT_URL") ?? "";
+  const ANON_KEY = Deno.env.get("ANON_KEY") ?? "";
+  const SERVICE_KEY = Deno.env.get("SERVICE_ROLE_KEY") ?? "";
   if (!SUPABASE_URL || !SERVICE_KEY) {
     return json(500, { error: "Server is missing Supabase env vars" });
   }

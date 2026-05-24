@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore, landedCostPerPiece, useCurrentUser } from "@/lib/store";
 import type { PaymentMethod, SaleItem } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ import { Send, Share2, Mail, FileDown } from "lucide-react";
 import { useCashDrawers } from "@/lib/cashDrawer";
 import { useDropdownGroup } from "@/lib/dropdowns";
 import { Link } from "react-router-dom";
+import { createPortal } from "react-dom";
 import { Lock, DoorOpen } from "lucide-react";
 
 interface CartLine {
@@ -71,12 +72,21 @@ export default function Sales() {
 
   const [search, setSearch] = useState("");
   const [customerQuery, setCustomerQuery] = useState("");
-  const [cart, setCart] = useState<CartLine[]>([]);
+  const [cart, setCart] = useState<CartLine[]>(() => {
+    try {
+      const saved = localStorage.getItem("pos-cart-draft");
+      return saved ? (JSON.parse(saved) as CartLine[]) : [];
+    } catch {
+      return [];
+    }
+  });
   const [payment, setPayment] = useState<PaymentMethod>("cash");
   const [customerId, setCustomerId] = useState<string>("");
   const [bagCount, setBagCount] = useState<number>(0);
   const [discount, setDiscount] = useState<number>(0);
   const [paidAmount, setPaidAmount] = useState<string>("");
+  const [bankTransferName, setBankTransferName] = useState<string>("");
+  const [bankTransferPhone, setBankTransferPhone] = useState<string>("");
 
   const drawers = useCashDrawers((s) => s.drawers);
   const addChangeGiven = useCashDrawers((s) => s.addChangeGiven);
@@ -105,6 +115,26 @@ export default function Sales() {
   const bagOptions = useDropdownGroup("plastic_bag_option");
   void discountReasons;
   void bagOptions;
+
+  useEffect(() => {
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("pos-cart-draft", JSON.stringify(cart));
+    } catch {
+      // ignore localStorage failures
+    }
+  }, [cart]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -202,8 +232,8 @@ export default function Sales() {
       }
       const ppCase = Math.max(1, p.piecesPerCase);
       console.log("[pos] price used:", { id: p.id, name: p.name, sellingPrice: p.sellingPrice, pricePerPiece: p.sellingPrice / ppCase });
-      const defaultMode: "case" | "piece" = ppCase > 1 ? "piece" : "piece";
-      const piecesAdded = defaultMode === "case" ? ppCase : 1;
+      const defaultMode: "case" | "piece" = "piece";
+      const piecesAdded = 1;
       return [
         ...prev,
         {
@@ -330,6 +360,12 @@ export default function Sales() {
       : 0;
   const grandTotal = +(baseForTotal + bagFee + cardFee).toFixed(2);
 
+  const paymentKey = String(payment).toLowerCase().replace(/[\s_-]+/g, "");
+  const isBankTransferSelected =
+    paymentKey === "bank" ||
+    paymentKey.includes("bank") ||
+    paymentKey.includes("transfer");
+
   const paidNum = Number(paidAmount) || 0;
   const changeAmt = +(paidNum - grandTotal).toFixed(2);
   const remainingAmt = changeAmt < 0 ? Math.abs(changeAmt) : 0;
@@ -337,12 +373,15 @@ export default function Sales() {
   const cancelSale = (): void => {
     if (cart.length === 0) return;
     setCart([]);
+    localStorage.removeItem("pos-cart-draft");
     setPayment("cash");
     setCustomerId("");
     setCustomerQuery("");
     setBagCount(0);
     setDiscount(0);
     setPaidAmount("");
+    setBankTransferName("");
+    setBankTransferPhone("");
     toast("Sale cancelled");
   };
 
@@ -414,11 +453,40 @@ export default function Sales() {
       payment === "cash" && paidNum > 0 && paidNum > grandTotal
         ? +(paidNum - grandTotal).toFixed(2)
         : 0;
+    if (payment === "cash") {
+      const paid = Number(paidAmount || 0);
+
+      if (!paidAmount || paid <= 0) {
+        toast.error("Please enter customer paid amount before saving the sale");
+        return;
+      }
+
+      if (paid < grandTotal) {
+        toast.error("Customer paid amount is less than the total amount");
+        return;
+      }
+    }
+    if (isBankTransferSelected) {
+      const name = bankTransferName.trim();
+      const phone = bankTransferPhone.trim();
+
+      if (!name || !phone) {
+        toast.error("Bank transfer customer name and phone/reference are required");
+        return;
+      }
+    }
+
     const sale = addSale(
       items,
       payment,
       payment === "credit" ? customerId : undefined,
-      cashChangeForSale
+      cashChangeForSale,
+      isBankTransferSelected
+        ? {
+            bankTransferName: bankTransferName.trim(),
+            bankTransferPhone: bankTransferPhone.trim(),
+          }
+        : undefined
     );
     const cust = customers.find((c) => c.id === customerId);
     const effectivePaid =
@@ -434,8 +502,8 @@ export default function Sales() {
       invoiceNo: sale.id.slice(-8).toUpperCase(),
       date: sale.date,
       cashierName: user?.fullName,
-      customerName: cust?.name,
-      customerPhone: cust?.phone,
+      customerName: cust?.name ?? (isBankTransferSelected ? bankTransferName.trim() : undefined),
+      customerPhone: cust?.phone ?? (isBankTransferSelected ? bankTransferPhone.trim() : undefined),
       items: cart.map((c) => ({
         name: c.name,
         qty: c.pieces,
@@ -506,12 +574,15 @@ export default function Sales() {
       toast.message("Cash drawer updated with POS sale.");
     }
     setCart([]);
+    localStorage.removeItem("pos-cart-draft");
     setPayment("cash");
     setCustomerId("");
     setCustomerQuery("");
     setBagCount(0);
     setDiscount(0);
     setPaidAmount("");
+    setBankTransferName("");
+    setBankTransferPhone("");
     if (printAfter) {
       setTimeout(() => {
         if (payment === "credit" && cust) {
@@ -577,10 +648,21 @@ export default function Sales() {
 
   const selectedCustomer = customers.find((c) => c.id === customerId);
 
-  return (
-    <div className="-mx-4 -my-4 sm:-mx-6 sm:-my-6 flex min-h-[calc(100vh-4rem)] flex-col bg-slate-50 text-slate-900 lg:h-[calc(100vh-4rem)] overflow-x-hidden">
+  return createPortal(
+    (
+    <div
+      className="fixed inset-0 flex h-[100dvh] w-[100dvw] flex-col overflow-hidden bg-slate-50 text-slate-900"
+      style={{ zIndex: 2147483647 }}
+    >
       {/* Top bar */}
       <div className="flex flex-col gap-2 border-b border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center">
+        <Link
+          to="/"
+          className="inline-flex h-12 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-100"
+          title="Back to main menu"
+        >
+          POS Menu
+        </Link>
         <div className="relative flex-1">
           <ScanLine className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
           <input
@@ -601,7 +683,7 @@ export default function Sales() {
                 <button
                   key={p.id}
                   onClick={() => addToCart(p.id)}
-                  disabled={p.stockPieces === 0}
+                  disabled={p.stockPieces <= 0}
                   className="flex w-full items-center gap-3 border-b border-slate-100 px-4 py-2.5 text-left last:border-b-0 hover:bg-slate-50 disabled:opacity-50"
                 >
                   <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50">
@@ -769,7 +851,7 @@ export default function Sales() {
                           <button
                             key={it.productId}
                             onClick={() => addToCart(it.productId)}
-                            disabled={!p || p.stockPieces === 0}
+                            disabled={!p || p.stockPieces <= 0}
                             className="group flex flex-col items-start gap-1 rounded-lg border border-slate-200 bg-white p-2.5 text-left shadow-sm transition hover:border-primary hover:bg-primary/5 disabled:opacity-50"
                           >
                             <div className="mb-1 h-20 w-full overflow-hidden rounded-md border border-slate-100 bg-slate-50">
@@ -792,15 +874,23 @@ export default function Sales() {
                               {it.name}
                             </div>
                             <div className="flex w-full items-center justify-between text-[10px] text-slate-500">
-                              <span>Last: {it.qty} pcs</span>
-                              <span>{formatDateTime(it.lastDate).split(",")[0]}</span>
+                              <span>
+                                Stock: {p ? `${p.stockPieces} ${p.unit}` : "0"}
+                              </span>
+                              <span>{p && p.stockPieces > 0 ? "Available" : "Out of stock"}</span>
                             </div>
                             <div className="mt-0.5 flex w-full items-center justify-between">
                               <span className="text-xs font-bold text-slate-900">
                                 {formatCurrency(price)}
                               </span>
-                              <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-700 group-hover:bg-emerald-100">
-                                + Add
+                              <span
+                                className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                                  p && p.stockPieces > 0
+                                    ? "bg-emerald-50 text-emerald-700 group-hover:bg-emerald-100"
+                                    : "bg-rose-50 text-rose-700"
+                                }`}
+                              >
+                                {p && p.stockPieces > 0 ? "+ Add" : "No Stock"}
                               </span>
                             </div>
                           </button>
@@ -1154,7 +1244,18 @@ export default function Sales() {
                   return list.map((m) => (
                     <button
                       key={m.k}
-                      onClick={() => setPayment(m.k)}
+                      onClick={() => {
+                        const rawPayment = String(m.k).toLowerCase();
+                        const normalizedPayment =
+                          rawPayment.includes("bank") || rawPayment.includes("transfer")
+                            ? "bank"
+                            : m.k;
+                        setPayment(normalizedPayment as PaymentMethod);
+                        if (normalizedPayment !== "bank") {
+                          setBankTransferName("");
+                          setBankTransferPhone("");
+                        }
+                      }}
                       className={`flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-xs font-semibold transition ${
                         payment === m.k
                           ? "border-primary bg-primary text-primary-foreground shadow"
@@ -1207,6 +1308,43 @@ export default function Sales() {
                 );
               })()}
             </div>
+
+            {/* Bank transfer details - REQUIRED only when Bank is selected */}
+            {isBankTransferSelected && (
+              <div className="rounded-lg border-2 border-sky-400 bg-sky-50 p-3 shadow-sm">
+                <div className="mb-2 text-[11px] font-extrabold uppercase tracking-wider text-sky-800">
+                  Bank Transfer Details Required
+                </div>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={bankTransferName}
+                    onChange={(e) => setBankTransferName(e.target.value)}
+                    placeholder="Enter customer name"
+                    className="h-11 w-full rounded-md border border-sky-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/30"
+                    autoComplete="off"
+                  />
+                  <input
+                    type="tel"
+                    value={bankTransferPhone}
+                    onChange={(e) => setBankTransferPhone(e.target.value)}
+                    placeholder="Enter phone number / transfer reference"
+                    className="h-11 w-full rounded-md border border-sky-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/30"
+                    autoComplete="off"
+                  />
+                  {(!bankTransferName.trim() || !bankTransferPhone.trim()) && (
+                    <div className="rounded-md bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                      You cannot save a bank transfer sale until customer name and phone/reference are entered.
+                    </div>
+                  )}
+                  {bankTransferName.trim() && bankTransferPhone.trim() && (
+                    <div className="rounded-md bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+                      Bank transfer details ready. This sale will be saved to reports.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Tendered / Change */}
             {payment === "cash" && (
@@ -1297,6 +1435,37 @@ export default function Sales() {
             )}
           </div>
 
+          {isBankTransferSelected && (
+            <div className="border-t border-sky-200 bg-sky-50 p-3">
+              <div className="mb-2 text-[11px] font-extrabold uppercase tracking-wider text-sky-800">
+                Bank Transfer Details Required
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <input
+                  type="text"
+                  value={bankTransferName}
+                  onChange={(e) => setBankTransferName(e.target.value)}
+                  placeholder="Customer name"
+                  className="h-11 w-full rounded-md border border-sky-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/30"
+                  autoComplete="off"
+                />
+                <input
+                  type="tel"
+                  value={bankTransferPhone}
+                  onChange={(e) => setBankTransferPhone(e.target.value)}
+                  placeholder="Phone / transfer reference"
+                  className="h-11 w-full rounded-md border border-sky-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/30"
+                  autoComplete="off"
+                />
+              </div>
+              {(!bankTransferName.trim() || !bankTransferPhone.trim()) && (
+                <div className="mt-2 rounded-md bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+                  Save is blocked until customer name and phone/reference are entered.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Bottom action buttons */}
           <div className="border-t border-slate-200 bg-white p-3">
             <div className="grid grid-cols-2 gap-2">
@@ -1309,14 +1478,14 @@ export default function Sales() {
               </Button>
               <Button
                 onClick={() => checkout(false)}
-                disabled={cart.length === 0 || !openDrawer}
+                disabled={cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
                 className="h-12"
               >
                 <Save className="mr-1 h-4 w-4" /> Save
               </Button>
               <Button
                 onClick={() => checkout(true)}
-                disabled={cart.length === 0 || !openDrawer}
+                disabled={cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
                 className="col-span-2 h-14 bg-emerald-600 text-base font-bold hover:bg-emerald-700"
               >
                 {openDrawer ? (
@@ -1355,6 +1524,8 @@ export default function Sales() {
         </div>
       </div>
     </div>
+    ),
+    document.body
   );
 }
 

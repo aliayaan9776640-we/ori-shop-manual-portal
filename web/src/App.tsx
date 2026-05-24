@@ -2,7 +2,14 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  useLocation,
+} from "react-router-dom";
+import { AnimatePresence } from "framer-motion";
 import { useStore, useCurrentUser } from "@/lib/store";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import Layout from "@/components/Layout";
@@ -33,9 +40,12 @@ import BackupPage from "./pages/Backup";
 import AuditLogs from "./pages/AuditLogs";
 import ConsignmentPage from "./pages/Consignment";
 import GstPurchaseReport from "./pages/GstPurchaseReport";
-import Store from "./pages/Store";
+import Store from "@/pages/Store";
 import OnlineOrders from "./pages/OnlineOrders";
 import OnlineShop from "./pages/OnlineShop";
+import PreOrders from "./pages/PreOrders";
+import PreorderAdmin from "./pages/PreorderAdmin";
+import CustomerProfileDashboard from "@/components/CustomerProfileDashboard";
 import CustomerApprovals from "./pages/CustomerApprovals";
 import NotFound from "./pages/NotFound";
 import ResetPassword from "./pages/ResetPassword";
@@ -63,9 +73,13 @@ function NotConfiguredScreen() {
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
           Supabase credentials are missing. Set
-          <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">VITE_SUPABASE_URL</code>
+          <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
+            VITE_SUPABASE_URL
+          </code>
           and
-          <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">VITE_SUPABASE_ANON_KEY</code>
+          <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">
+            VITE_SUPABASE_ANON_KEY
+          </code>
           in your environment, then rebuild the app.
         </p>
       </div>
@@ -77,8 +91,7 @@ function RequireAuth({ children }: { children: ReactNode }) {
   const user = useCurrentUser();
   const hydrated = useStore((s) => s.hydrated);
   const inactive = !!user && !user.active;
-  // Side-effects (signOut, setState) must NEVER run during render.
-  // Doing so previously caused a re-render loop (React error #185).
+
   useEffect(() => {
     if (inactive) {
       if (isSupabaseConfigured) void supabase.auth.signOut();
@@ -86,9 +99,6 @@ function RequireAuth({ children }: { children: ReactNode }) {
     }
   }, [inactive]);
 
-  // Watchdog: if bootstrap is taking too long (stale token, slow network,
-  // RLS issue on one table, etc.) force the gate open after 8s so the user
-  // can still reach /login instead of staring at a forever-spinner.
   useEffect(() => {
     if (hydrated || !isSupabaseConfigured) return;
     const t = window.setTimeout(() => {
@@ -120,71 +130,48 @@ function RequireAuth({ children }: { children: ReactNode }) {
       </div>
     );
   }
+
   if (!user) return <Navigate to="/login" replace />;
   if (inactive) return <Navigate to="/login" replace />;
+
   return <>{children}</>;
 }
 
 function AuthBootstrap() {
   const bootstrap = useStore((s) => s.bootstrap);
+
   useEffect(() => {
     void bootstrap();
 
-    // Force fresh load of settings & dropdowns from Supabase on app start.
     if (isSupabaseConfigured) {
-      void useSettings
-        .getState()
-        .loadRemote()
-        .catch((e: unknown) => {
-          // Already logged inside loadRemote; don't spam toasts on bootstrap.
-          // (Common cause: app_settings table not yet created in Supabase.)
-          console.warn("[settings] initial load failed", e);
-        });
-      void useDropdowns
-        .getState()
-        .load()
-        .catch((e: unknown) => {
-          // Already logged inside load(); avoid bootstrap toast spam.
-          console.warn("[dropdowns] initial load failed", e);
-        });
-      void useRoleSettings
-        .getState()
-        .load()
-        .catch((e: unknown) => {
-          console.warn("[role_settings] initial load failed", e);
-        });
-      void usePurchaseOrders
-        .getState()
-        .load()
-        .catch((e: unknown) => {
-          console.warn("[purchase_orders] initial load failed", e);
-        });
-      void useConsignment
-        .getState()
-        .load()
-        .catch((e: unknown) => {
-          console.warn("[consignment] initial load failed", e);
-        });
-      void useCashDrawers
-        .getState()
-        .load()
-        .catch((e: unknown) => {
-          console.warn("[cash_drawers] initial load failed", e);
-        });
-      void useOnlineAdminStore
-        .getState()
-        .load()
-        .catch((e: unknown) => {
-          console.warn("[online_orders] initial load failed", e);
-        });
+      void useSettings.getState().loadRemote().catch((e: unknown) => {
+        console.warn("[settings] initial load failed", e);
+      });
+      void useDropdowns.getState().load().catch((e: unknown) => {
+        console.warn("[dropdowns] initial load failed", e);
+      });
+      void useRoleSettings.getState().load().catch((e: unknown) => {
+        console.warn("[role_settings] initial load failed", e);
+      });
+      void usePurchaseOrders.getState().load().catch((e: unknown) => {
+        console.warn("[purchase_orders] initial load failed", e);
+      });
+      void useConsignment.getState().load().catch((e: unknown) => {
+        console.warn("[consignment] initial load failed", e);
+      });
+      void useCashDrawers.getState().load().catch((e: unknown) => {
+        console.warn("[cash_drawers] initial load failed", e);
+      });
+      void useOnlineAdminStore.getState().load().catch((e: unknown) => {
+        console.warn("[online_orders] initial load failed", e);
+      });
     }
 
-    // Daily automatic backup: runs once per session if 24h have elapsed,
-    // and re-checks hourly + on window focus.
     let backupInterval: number | null = null;
     const onFocus = (): void => {
       runDailyAutoBackupIfDue();
     };
+
     try {
       runDailyAutoBackupIfDue();
       backupInterval = window.setInterval(() => {
@@ -195,25 +182,23 @@ function AuthBootstrap() {
       console.error("[backup] init failed", e);
     }
 
-    // ---- Global settings live sync ----------------------------------
-    // Settings, dropdowns and role rules are admin-controlled but apply
-    // to every user. Subscribe to Supabase realtime so changes propagate
-    // to all open sessions without a rebuild.
     let settingsChannel: ReturnType<typeof supabase.channel> | null = null;
     let settingsRefetchInterval: number | null = null;
+
     const refetchAllSettings = (notify: boolean): void => {
-      void useSettings.getState().loadRemote().catch(() => {});
-      void useDropdowns.getState().load().catch(() => {});
-      void useRoleSettings.getState().load().catch(() => {});
+      void useSettings.getState().loadRemote().catch(() => { });
+      void useDropdowns.getState().load().catch(() => { });
+      void useRoleSettings.getState().load().catch(() => { });
       if (notify) {
-        const me = useStore.getState().users.find(
-          (u) => u.id === useStore.getState().currentUserId
-        );
+        const me = useStore
+          .getState()
+          .users.find((u) => u.id === useStore.getState().currentUserId);
         if (me && me.role !== "admin") {
           toast.info("Settings updated by admin", { duration: 3000 });
         }
       }
     };
+
     if (isSupabaseConfigured) {
       settingsChannel = supabase
         .channel("global-settings-feed")
@@ -233,21 +218,20 @@ function AuthBootstrap() {
           () => refetchAllSettings(true)
         )
         .subscribe();
-      // Periodic refetch as a safety net (every 5 minutes) plus on focus.
+
       settingsRefetchInterval = window.setInterval(
         () => refetchAllSettings(false),
         5 * 60 * 1000
       );
+
       const onSettingsFocus = (): void => refetchAllSettings(false);
       window.addEventListener("focus", onSettingsFocus);
-      // Stash the listener so the cleanup below can remove it.
       (window as unknown as { __oriSettingsFocusHandler?: () => void }).__oriSettingsFocusHandler =
         onSettingsFocus;
     }
 
-    // Realtime subscription: notify admins when a new approval-eligible
-    // request is created (credit customer or purchase order).
     let approvalsChannel: ReturnType<typeof supabase.channel> | null = null;
+
     if (isSupabaseConfigured) {
       approvalsChannel = supabase
         .channel("approvals-feed")
@@ -255,11 +239,16 @@ function AuthBootstrap() {
           "postgres_changes",
           { event: "*", schema: "public", table: "customers" },
           (payload) => {
-            const me = useStore.getState().users.find(
-              (u) => u.id === useStore.getState().currentUserId
-            );
+            const me = useStore
+              .getState()
+              .users.find((u) => u.id === useStore.getState().currentUserId);
+
             void useStore.getState().bootstrap();
-            const newRow = payload.new as { approval_status?: string; name?: string } | null;
+
+            const newRow = payload.new as
+              | { approval_status?: string; name?: string }
+              | null;
+
             if (
               me?.role === "admin" &&
               payload.eventType === "INSERT" &&
@@ -276,15 +265,17 @@ function AuthBootstrap() {
           "postgres_changes",
           { event: "*", schema: "public", table: "purchase_orders" },
           (payload) => {
-            const me = useStore.getState().users.find(
-              (u) => u.id === useStore.getState().currentUserId
-            );
+            const me = useStore
+              .getState()
+              .users.find((u) => u.id === useStore.getState().currentUserId);
+
             void usePurchaseOrders.getState().load();
-            const newRow = payload.new as { status?: string; po_no?: string } | null;
-            if (
-              me?.role === "admin" &&
-              newRow?.status === "waiting_approval"
-            ) {
+
+            const newRow = payload.new as
+              | { status?: string; po_no?: string }
+              | null;
+
+            if (me?.role === "admin" && newRow?.status === "waiting_approval") {
               toast.info(
                 `Purchase Order ${newRow.po_no ?? ""} is waiting your approval`,
                 { duration: 5000 }
@@ -295,10 +286,8 @@ function AuthBootstrap() {
         .subscribe();
     }
 
-    // ---- Product approval realtime alerts -------------------------
-    // Notify admins when staff add a new product (defaults to pending)
-    // and refresh the products list so the Approvals queue updates live.
     let productsChannel: ReturnType<typeof supabase.channel> | null = null;
+
     if (isSupabaseConfigured) {
       productsChannel = supabase
         .channel("products-approval-feed")
@@ -307,13 +296,17 @@ function AuthBootstrap() {
           { event: "*", schema: "public", table: "products" },
           (payload) => {
             void useStore.getState().bootstrap();
-            const me = useStore.getState().users.find(
-              (u) => u.id === useStore.getState().currentUserId
-            );
+
+            const me = useStore
+              .getState()
+              .users.find((u) => u.id === useStore.getState().currentUserId);
+
             if (me?.role !== "admin") return;
+
             const newRow = payload.new as
               | { publish_status?: string; name?: string }
               | null;
+
             if (
               payload.eventType === "INSERT" &&
               newRow?.publish_status === "pending"
@@ -328,8 +321,8 @@ function AuthBootstrap() {
         .subscribe();
     }
 
-    // ---- Online orders realtime alerts ----------------------------
     let onlineOrdersChannel: ReturnType<typeof supabase.channel> | null = null;
+
     if (isSupabaseConfigured) {
       onlineOrdersChannel = supabase
         .channel("online-orders-feed")
@@ -338,50 +331,66 @@ function AuthBootstrap() {
           { event: "*", schema: "public", table: "online_orders" },
           (payload) => {
             void useOnlineAdminStore.getState().load();
-            const me = useStore.getState().users.find(
-              (u) => u.id === useStore.getState().currentUserId
-            );
+
+            const me = useStore
+              .getState()
+              .users.find((u) => u.id === useStore.getState().currentUserId);
+
             if (!me) return;
             if (me.role === "storekeeper") return;
+
             const newRow = payload.new as
               | { status?: string; order_no?: string; customer_name?: string }
               | null;
+
             if (
               payload.eventType === "INSERT" &&
               newRow?.status === "pending"
             ) {
               toast.info(
-                `New online order ${newRow.order_no ?? ""} from ${
-                  newRow.customer_name ?? "customer"
+                `New online order ${newRow.order_no ?? ""} from ${newRow.customer_name ?? "customer"
                 }`,
                 { duration: 6000 }
               );
-              try {
-                const ctx = new (window.AudioContext ||
-                  (window as unknown as { webkitAudioContext: typeof AudioContext })
-                    .webkitAudioContext)();
-                const o = ctx.createOscillator();
-                const g = ctx.createGain();
-                o.type = "sine";
-                o.frequency.value = 880;
-                g.gain.value = 0.08;
-                o.connect(g);
-                g.connect(ctx.destination);
-                o.start();
-                o.stop(ctx.currentTime + 0.25);
-              } catch {
-                // Browser blocked audio, ignore.
-              }
             }
           }
         )
         .subscribe();
     }
 
-    // ---- Cash drawer realtime sync --------------------------------
-    // The shop has a single shared open drawer; every device must see
-    // open/close updates immediately so POS lock state stays correct.
+    let preorderChannel: ReturnType<typeof supabase.channel> | null = null;
+
+    if (isSupabaseConfigured) {
+      preorderChannel = supabase
+        .channel("preorder-global-feed")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "preorder_orders" },
+          (payload) => {
+            const me = useStore
+              .getState()
+              .users.find((u) => u.id === useStore.getState().currentUserId);
+
+            if (!me) return;
+            if (me.role !== "admin" && me.role !== "storekeeper") return;
+
+            const newRow = payload.new as
+              | { customer_name?: string; order_status?: string }
+              | null;
+
+            if (payload.eventType === "INSERT") {
+              toast.info(
+                `New pre-order from ${newRow?.customer_name ?? "customer"}`,
+                { duration: 6000 }
+              );
+            }
+          }
+        )
+        .subscribe();
+    }
+
     let drawersChannel: ReturnType<typeof supabase.channel> | null = null;
+
     if (isSupabaseConfigured) {
       drawersChannel = supabase
         .channel("cash-drawers-feed")
@@ -390,17 +399,28 @@ function AuthBootstrap() {
           { event: "*", schema: "public", table: "cash_drawers" },
           (payload) => {
             void useCashDrawers.getState().load();
-            const me = useStore.getState().users.find(
-              (u) => u.id === useStore.getState().currentUserId
-            );
+
+            const me = useStore
+              .getState()
+              .users.find((u) => u.id === useStore.getState().currentUserId);
+
             const newRow = payload.new as
-              | { status?: string; opened_by_name?: string; cashier_name?: string; closed_by_name?: string }
+              | {
+                status?: string;
+                opened_by_name?: string;
+                cashier_name?: string;
+                closed_by_name?: string;
+              }
               | null;
+
             const oldRow = payload.old as { status?: string } | null;
+
             if (!me) return;
+
             if (payload.eventType === "INSERT" && newRow?.status === "open") {
               toast.info(
-                `Cash drawer opened by ${newRow.opened_by_name ?? newRow.cashier_name ?? "a cashier"}`,
+                `Cash drawer opened by ${newRow.opened_by_name ?? newRow.cashier_name ?? "a cashier"
+                }`,
                 { duration: 3000 }
               );
             } else if (
@@ -409,7 +429,8 @@ function AuthBootstrap() {
               newRow?.status !== "open"
             ) {
               toast.info(
-                `Cash drawer closed${newRow?.closed_by_name ? ` by ${newRow.closed_by_name}` : ""}`,
+                `Cash drawer closed${newRow?.closed_by_name ? ` by ${newRow.closed_by_name}` : ""
+                }`,
                 { duration: 3000 }
               );
             }
@@ -420,73 +441,138 @@ function AuthBootstrap() {
 
     const sub = isSupabaseConfigured
       ? supabase.auth.onAuthStateChange((event, session) => {
-          // Don't hijack a password-recovery session as a normal login.
-          if (event === "PASSWORD_RECOVERY") {
-            console.log("[auth] password recovery session detected");
-            if (!window.location.pathname.startsWith("/reset-password")) {
-              window.location.replace("/reset-password");
-            }
-            return;
+        if (event === "PASSWORD_RECOVERY") {
+          console.log("[auth] password recovery session detected");
+          if (!window.location.pathname.startsWith("/reset-password")) {
+            window.location.replace("/reset-password");
           }
-          if (window.location.pathname.startsWith("/reset-password")) {
-            return;
-          }
-          if (event === "SIGNED_OUT") {
+          return;
+        }
+
+        if (window.location.pathname.startsWith("/reset-password")) return;
+
+        if (event === "SIGNED_OUT") {
+          useStore.setState({ currentUserId: null });
+          return;
+        }
+
+        if (session?.user) {
+          const me = useStore
+            .getState()
+            .users.find((u) => u.id === session.user.id);
+
+          if (me && !me.active) {
+            console.warn("[auth] inactive user detected, signing out", me.email);
+            void supabase.auth.signOut();
             useStore.setState({ currentUserId: null });
             return;
           }
-          if (session?.user) {
-            // If the user has been deactivated, immediately revoke the session
-            // even if it was restored from storage.
-            const me = useStore
-              .getState()
-              .users.find((u) => u.id === session.user.id);
-            if (me && !me.active) {
-              console.warn("[auth] inactive user detected, signing out", me.email);
-              void supabase.auth.signOut();
-              useStore.setState({ currentUserId: null });
-              return;
-            }
-            useStore.setState({ currentUserId: session.user.id });
-          }
-        })
+
+          useStore.setState({ currentUserId: session.user.id });
+        }
+      })
       : null;
 
     return () => {
       if (backupInterval !== null) window.clearInterval(backupInterval);
-      if (settingsRefetchInterval !== null) window.clearInterval(settingsRefetchInterval);
+      if (settingsRefetchInterval !== null) {
+        window.clearInterval(settingsRefetchInterval);
+      }
+
       window.removeEventListener("focus", onFocus);
-      const stash = window as unknown as { __oriSettingsFocusHandler?: () => void };
+
+      const stash = window as unknown as {
+        __oriSettingsFocusHandler?: () => void;
+      };
+
       if (stash.__oriSettingsFocusHandler) {
         window.removeEventListener("focus", stash.__oriSettingsFocusHandler);
         stash.__oriSettingsFocusHandler = undefined;
       }
+
       sub?.data.subscription.unsubscribe();
-      if (approvalsChannel) {
-        void supabase.removeChannel(approvalsChannel);
-      }
-      if (settingsChannel) {
-        void supabase.removeChannel(settingsChannel);
-      }
-      if (drawersChannel) {
-        void supabase.removeChannel(drawersChannel);
-      }
-      if (onlineOrdersChannel) {
-        void supabase.removeChannel(onlineOrdersChannel);
-      }
-      if (productsChannel) {
-        void supabase.removeChannel(productsChannel);
-      }
+
+      if (approvalsChannel) void supabase.removeChannel(approvalsChannel);
+      if (settingsChannel) void supabase.removeChannel(settingsChannel);
+      if (drawersChannel) void supabase.removeChannel(drawersChannel);
+      if (onlineOrdersChannel) void supabase.removeChannel(onlineOrdersChannel);
+      if (productsChannel) void supabase.removeChannel(productsChannel);
+      if (preorderChannel) void supabase.removeChannel(preorderChannel);
     };
   }, [bootstrap]);
+
   return null;
 }
+function AnimatedRoutes() {
+  const location = useLocation();
 
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        <Route path="/login" element={<Login />} />
+        <Route path="/store-login" element={<StoreLogin />} />
+        <Route path="/customer-login" element={<CustomerLogin />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/bill/:token" element={<PublicBill />} />
+        <Route path="/store" element={<Store />} />
+        <Route path="/pre-orders" element={<PreOrders />} />
+
+        <Route
+          path="/profile"
+          element={<CustomerProfileDashboard />}
+        />
+
+        <Route
+          path="/customer-profile"
+          element={<CustomerProfileDashboard />}
+        />
+
+        <Route
+          element={
+            <RequireAuth>
+              <Layout />
+            </RequireAuth>
+          }
+        >
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/inventory" element={<Inventory />} />
+          <Route path="/sales" element={<RoleGate roles={["admin", "cashier"]}><Sales /></RoleGate>} />
+          <Route path="/bills" element={<RoleGate roles={["admin", "cashier"]}><BillHistory /></RoleGate>} />
+          <Route path="/quotations" element={<RoleGate roles={["admin", "cashier"]}><Quotations /></RoleGate>} />
+          <Route path="/cash-drawer" element={<RoleGate roles={["admin", "cashier"]}><CashDrawerPage /></RoleGate>} />
+          <Route path="/suppliers" element={<RoleGate roles={["admin", "storekeeper"]}><Suppliers /></RoleGate>} />
+          <Route path="/purchase-orders" element={<RoleGate roles={["admin", "storekeeper"]}><PurchaseOrders /></RoleGate>} />
+          <Route path="/orders" element={<RoleGate roles={["admin", "storekeeper"]}><Orders /></RoleGate>} />
+          <Route path="/damaged" element={<RoleGate roles={["admin", "storekeeper"]}><Damaged /></RoleGate>} />
+          <Route path="/customers" element={<RoleGate roles={["admin", "cashier"]}><Customers /></RoleGate>} />
+          <Route path="/credit-approvals" element={<RoleGate roles={["admin"]}><CreditApprovals /></RoleGate>} />
+          <Route path="/approvals" element={<RoleGate roles={["admin"]}><Approvals /></RoleGate>} />
+          <Route path="/credit-sends" element={<RoleGate roles={["admin", "cashier"]}><CreditSends /></RoleGate>} />
+          <Route path="/customers/:id" element={<RoleGate roles={["admin", "cashier"]}><CustomerDetail /></RoleGate>} />
+          <Route path="/reports" element={<RoleGate roles={["admin"]}><Reports /></RoleGate>} />
+          <Route path="/users" element={<RoleGate roles={["admin"]}><Users /></RoleGate>} />
+          <Route path="/settings" element={<RoleGate roles={["admin"]}><Settings /></RoleGate>} />
+          <Route path="/consignment" element={<RoleGate roles={["admin", "storekeeper", "cashier"]}><ConsignmentPage /></RoleGate>} />
+          <Route path="/gst-purchase-report" element={<RoleGate roles={["admin", "storekeeper"]}><GstPurchaseReport /></RoleGate>} />
+          <Route path="/online-orders" element={<RoleGate roles={["admin", "cashier"]}><OnlineOrders /></RoleGate>} />
+          <Route path="/online-shop" element={<RoleGate roles={["admin"]}><OnlineShop /></RoleGate>} />
+          <Route path="/preorder-admin" element={<RoleGate roles={["admin", "storekeeper"]}><PreorderAdmin /></RoleGate>} />
+          <Route path="/customer-approvals" element={<RoleGate roles={["admin", "cashier"]}><CustomerApprovals /></RoleGate>} />
+          <Route path="/audit-logs" element={<RoleGate roles={["admin"]}><AuditLogs /></RoleGate>} />
+          <Route path="/backup" element={<RoleGate roles={["admin"]}><BackupPage /></RoleGate>} />
+        </Route>
+
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </AnimatePresence>
+  );
+}
 const App = () => {
   if (!isSupabaseConfigured) {
     console.error(
       "[App] Supabase env missing. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY."
     );
+
     return (
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
@@ -497,219 +583,19 @@ const App = () => {
       </QueryClientProvider>
     );
   }
+
   return (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner position="top-right" richColors />
-      <BrowserRouter>
-        <AuthBootstrap />
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/store-login" element={<StoreLogin />} />
-          <Route path="/customer-login" element={<CustomerLogin />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/bill/:token" element={<PublicBill />} />
-          <Route path="/store" element={<Store />} />
-          <Route
-            element={
-              <RequireAuth>
-                <Layout />
-              </RequireAuth>
-            }
-          >
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/inventory" element={<Inventory />} />
-            <Route
-              path="/sales"
-              element={
-                <RoleGate roles={["admin", "cashier"]}>
-                  <Sales />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/bills"
-              element={
-                <RoleGate roles={["admin", "cashier"]}>
-                  <BillHistory />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/quotations"
-              element={
-                <RoleGate roles={["admin", "cashier"]}>
-                  <Quotations />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/cash-drawer"
-              element={
-                <RoleGate roles={["admin", "cashier"]}>
-                  <CashDrawerPage />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/suppliers"
-              element={
-                <RoleGate roles={["admin", "storekeeper"]}>
-                  <Suppliers />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/purchase-orders"
-              element={
-                <RoleGate roles={["admin", "storekeeper"]}>
-                  <PurchaseOrders />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/orders"
-              element={
-                <RoleGate roles={["admin", "storekeeper"]}>
-                  <Orders />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/damaged"
-              element={
-                <RoleGate roles={["admin", "storekeeper"]}>
-                  <Damaged />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/customers"
-              element={
-                <RoleGate roles={["admin", "cashier"]}>
-                  <Customers />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/credit-approvals"
-              element={
-                <RoleGate roles={["admin"]}>
-                  <CreditApprovals />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/approvals"
-              element={
-                <RoleGate roles={["admin"]}>
-                  <Approvals />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/credit-sends"
-              element={
-                <RoleGate roles={["admin", "cashier"]}>
-                  <CreditSends />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/customers/:id"
-              element={
-                <RoleGate roles={["admin", "cashier"]}>
-                  <CustomerDetail />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/reports"
-              element={
-                <RoleGate roles={["admin"]}>
-                  <Reports />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/users"
-              element={
-                <RoleGate roles={["admin"]}>
-                  <Users />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <RoleGate roles={["admin"]}>
-                  <Settings />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/consignment"
-              element={
-                <RoleGate roles={["admin", "storekeeper", "cashier"]}>
-                  <ConsignmentPage />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/gst-purchase-report"
-              element={
-                <RoleGate roles={["admin", "storekeeper"]}>
-                  <GstPurchaseReport />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/online-orders"
-              element={
-                <RoleGate roles={["admin", "cashier"]}>
-                  <OnlineOrders />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/online-shop"
-              element={
-                <RoleGate roles={["admin"]}>
-                  <OnlineShop />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/customer-approvals"
-              element={
-                <RoleGate roles={["admin", "cashier"]}>
-                  <CustomerApprovals />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/audit-logs"
-              element={
-                <RoleGate roles={["admin"]}>
-                  <AuditLogs />
-                </RoleGate>
-              }
-            />
-            <Route
-              path="/backup"
-              element={
-                <RoleGate roles={["admin"]}>
-                  <BackupPage />
-                </RoleGate>
-              }
-            />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner position="top-right" richColors />
+        <BrowserRouter>
+          <AuthBootstrap />
+
+          <AnimatedRoutes />
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
   );
 };
 

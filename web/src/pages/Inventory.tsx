@@ -1,14 +1,20 @@
 import { useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import {
-  useStore,
-  landedCostPerPiece,
-  landedCostTotal,
-} from "@/lib/store";
+import { useStore, landedCostPerPiece, landedCostTotal } from "@/lib/store";
 import { useCurrentUser } from "@/lib/store";
 import { useTaxSettings, computePrice } from "@/lib/taxSettings";
-import type { InventoryTx, Product, Sale, StockBatch, UnitType } from "@/lib/types";
-import { productExpiryStatus, daysUntilExpiry, sortBatchesFifo } from "@/lib/expiry";
+import type {
+  InventoryTx,
+  Product,
+  Sale,
+  StockBatch,
+  UnitType,
+} from "@/lib/types";
+import {
+  productExpiryStatus,
+  daysUntilExpiry,
+  sortBatchesFifo,
+} from "@/lib/expiry";
 import { useSettings } from "@/lib/settings";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,12 +42,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-
-
 interface FormState {
   name: string;
   barcode: string;
   category: string;
+  size: string;
   supplierId: string;
   purchasePrice: number;
   sellingPrice: number;
@@ -59,10 +64,66 @@ interface FormState {
   applyCardCharge: boolean;
 }
 
+const baseUnitLabel = (unit?: string): string => {
+  const u = String(unit || "piece").toLowerCase();
+  if (u === "kg" || u === "kilogram") return "kg";
+  if (u === "g" || u === "gram") return "g";
+  if (u === "bag") return "kg";
+  return "pc";
+};
+
+const bulkUnitLabel = (unit?: string): string => {
+  const u = String(unit || "piece").toLowerCase();
+  if (u === "kg" || u === "kilogram") return "kg";
+  if (u === "g" || u === "gram") return "g";
+  if (u === "bag") return "bag";
+  if (u === "box") return "box";
+  if (u === "case") return "case";
+  if (u === "packet") return "packet";
+  if (u === "bottle") return "bottle";
+  if (u === "tin") return "tin";
+  return "case";
+};
+
+const isWeightUnit = (unit?: string): boolean => {
+  const u = String(unit || "").toLowerCase();
+  return u === "kg" || u === "g" || u === "gram" || u === "bag";
+};
+
+const formatQtySmart = (n: number): string => {
+  const value = Number(n || 0);
+  if (Number.isInteger(value)) return formatNumber(value);
+  return value.toLocaleString("en-US", { maximumFractionDigits: 3 });
+};
+
+const splitBulkAndBase = (totalBase: number, perBulk: number) => {
+  const safe = Math.max(1, Number(perBulk || 1));
+  const bulk = Math.floor(Number(totalBase || 0) / safe);
+  const loose = Number(totalBase || 0) - bulk * safe;
+  return { bulk, loose };
+};
+
+const formatStockBalance = (
+  totalBase: number,
+  perBulk: number,
+  unit?: string,
+): string => {
+  const base = baseUnitLabel(unit);
+  const bulk = bulkUnitLabel(unit);
+  const safe = Math.max(1, Number(perBulk || 1));
+  if (safe <= 1) return `${formatQtySmart(totalBase)} ${base}`;
+  const parts = splitBulkAndBase(totalBase, safe);
+  return `${formatQtySmart(parts.bulk)} ${bulk} + ${formatQtySmart(parts.loose)} ${base}`;
+};
+
+const formatTotalBase = (totalBase: number, unit?: string): string =>
+  `${formatQtySmart(totalBase)} ${baseUnitLabel(unit)}`;
+
 const blank: FormState = {
   name: "",
   barcode: "",
   category: "",
+  size: "",
   supplierId: "",
   purchasePrice: 0,
   sellingPrice: 0,
@@ -98,7 +159,14 @@ export default function Inventory() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [form, setForm] = useState<FormState>(blank);
-  const [stockOpen, setStockOpen] = useState<{ id: string; name: string; mode: "in" | "out"; piecesPerCase: number; currentPieces: number } | null>(null);
+  const [stockOpen, setStockOpen] = useState<{
+    id: string;
+    name: string;
+    mode: "in" | "out";
+    piecesPerCase: number;
+    currentPieces: number;
+    unit: UnitType;
+  } | null>(null);
   const [existingStock, setExistingStock] = useState(0);
   const [addBulk, setAddBulk] = useState(0);
   const [addLoose, setAddLoose] = useState(0);
@@ -109,10 +177,7 @@ export default function Inventory() {
   const [stockBuyingPersonId, setStockBuyingPersonId] = useState("");
   const [addBuyingPersonId, setAddBuyingPersonId] = useState("");
   const users = useStore((s) => s.users);
-  const buyingPeople = useMemo(
-    () => users.filter((u) => u.active),
-    [users]
-  );
+  const buyingPeople = useMemo(() => users.filter((u) => u.active), [users]);
   const batches = useStore((s) => s.batches);
   const nearExpiryDays = useSettings((s) => s.nearExpiryDays);
   const [taxOpen, setTaxOpen] = useState(false);
@@ -125,9 +190,16 @@ export default function Inventory() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter((p) => {
-      if (q && !p.name.toLowerCase().includes(q) && !p.barcode.toLowerCase().includes(q))
+      if (
+        q &&
+        !p.name.toLowerCase().includes(q) &&
+        !p.barcode.toLowerCase().includes(q)
+      )
         return false;
-      if (filter === "low" && !(p.stockPieces > 0 && p.stockPieces <= p.reorderLevel))
+      if (
+        filter === "low" &&
+        !(p.stockPieces > 0 && p.stockPieces <= p.reorderLevel)
+      )
         return false;
       if (filter === "out" && p.stockPieces !== 0) return false;
       return true;
@@ -152,6 +224,7 @@ export default function Inventory() {
       name: p.name,
       barcode: p.barcode,
       category: p.category,
+      size: (p as Product & { size?: string }).size ?? "",
       supplierId: p.supplierId,
       purchasePrice: p.purchasePrice,
       sellingPrice: p.sellingPrice,
@@ -205,7 +278,7 @@ export default function Inventory() {
             buyingPersonId: addBuyingPersonId || undefined,
           });
           toast.success(
-            `"${dup.name}" already exists — added ${addedPieces} pcs to existing item`
+            `"${dup.name}" already exists — added ${formatTotalBase(addedPieces, form.unit)} to existing item`,
           );
         } else {
           toast.info(`"${dup.name}" already exists. No quantity to add.`);
@@ -233,16 +306,26 @@ export default function Inventory() {
       toast.error("Quantity must be greater than 0");
       return;
     }
-    if (stockOpen.mode === "out" && stockTotalPieces > stockOpen.currentPieces) {
+    if (
+      stockOpen.mode === "out" &&
+      stockTotalPieces > stockOpen.currentPieces
+    ) {
       toast.error("Cannot remove more than current stock");
       return;
     }
-    const delta = stockOpen.mode === "in" ? stockTotalPieces : -stockTotalPieces;
+    const delta =
+      stockOpen.mode === "in" ? stockTotalPieces : -stockTotalPieces;
     adjustStock(stockOpen.id, delta, stockReason || stockOpen.mode, {
-      expiryDate: stockOpen.mode === "in" && stockExpiry ? stockExpiry : undefined,
-      buyingPersonId: stockOpen.mode === "in" && stockBuyingPersonId ? stockBuyingPersonId : undefined,
+      expiryDate:
+        stockOpen.mode === "in" && stockExpiry ? stockExpiry : undefined,
+      buyingPersonId:
+        stockOpen.mode === "in" && stockBuyingPersonId
+          ? stockBuyingPersonId
+          : undefined,
     });
-    toast.success(`Stock ${stockOpen.mode === "in" ? "added" : "removed"} (${stockTotalPieces} pcs)`);
+    toast.success(
+      `Stock ${stockOpen.mode === "in" ? "added" : "removed"} (${formatTotalBase(stockTotalPieces, stockOpen.unit)})`,
+    );
     setStockOpen(null);
     setStockBulk(0);
     setStockLoose(0);
@@ -260,19 +343,31 @@ export default function Inventory() {
     gstPct: tax.gstPct,
   });
 
-  // ----- Case + piece helpers (UI-only; stockPieces is the source of truth) -----
+  // ----- Unit helpers (UI-only; stockPieces remains the source of truth) -----
+  // For piece/case items, stockPieces means pieces. For KG/bag items, it means kg/base unit.
   const ppc = Math.max(1, form.piecesPerCase || 1);
-  const addedPieces = Math.max(0, Math.floor(addBulk || 0)) * ppc + Math.max(0, Math.floor(addLoose || 0));
+  const baseLabel = baseUnitLabel(form.unit);
+  const bulkLabel = bulkUnitLabel(form.unit);
+  const weighted = isWeightUnit(form.unit);
+  const addedPieces =
+    Math.max(0, Number(addBulk || 0)) * ppc +
+    Math.max(0, Number(addLoose || 0));
   const newBalance = existingStock + addedPieces;
   // Keep form.stockPieces in sync with existing + added
   if (form.stockPieces !== newBalance) {
     // schedule update via setForm in effectless way — safe within render because we guard equality
-    queueMicrotask(() => setForm((f) => (f.stockPieces === newBalance ? f : { ...f, stockPieces: newBalance })));
+    queueMicrotask(() =>
+      setForm((f) =>
+        f.stockPieces === newBalance ? f : { ...f, stockPieces: newBalance },
+      ),
+    );
   }
-  const existingCases = Math.floor(existingStock / ppc);
-  const existingLoose = existingStock - existingCases * ppc;
-  const balCases = Math.floor(newBalance / ppc);
-  const balLoose = newBalance - balCases * ppc;
+  const existingSplit = splitBulkAndBase(existingStock, ppc);
+  const existingCases = existingSplit.bulk;
+  const existingLoose = existingSplit.loose;
+  const balSplit = splitBulkAndBase(newBalance, ppc);
+  const balCases = balSplit.bulk;
+  const balLoose = balSplit.loose;
   const landedPerPiece = breakdown.landed / ppc;
   const sellingPerPiece = form.sellingPrice / ppc;
   const sellingPerCase = form.sellingPrice;
@@ -289,7 +384,11 @@ export default function Inventory() {
           canEdit && (
             <div className="flex gap-2">
               {user?.role === "admin" && (
-                <Button variant="outline" onClick={() => setTaxOpen(true)} className="gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setTaxOpen(true)}
+                  className="gap-2"
+                >
                   Tax Settings
                 </Button>
               )}
@@ -335,12 +434,12 @@ export default function Inventory() {
               <tr>
                 <th className="px-4 py-3 text-left">Product</th>
                 <th className="px-4 py-3 text-left">Category</th>
-                <th className="px-4 py-3 text-right">Stock (cases / loose / total)</th>
-                <th className="px-4 py-3 text-right">Landed / pc</th>
-                <th className="px-4 py-3 text-right">Selling / pc</th>
-                <th className="px-4 py-3 text-right">Selling / case</th>
-                <th className="px-4 py-3 text-right">Profit / pc</th>
-                <th className="px-4 py-3 text-right">Profit / case</th>
+                <th className="px-4 py-3 text-right">Stock Balance</th>
+                <th className="px-4 py-3 text-right">Landed / unit</th>
+                <th className="px-4 py-3 text-right">Selling / unit</th>
+                <th className="px-4 py-3 text-right">Selling / bulk</th>
+                <th className="px-4 py-3 text-right">Profit / unit</th>
+                <th className="px-4 py-3 text-right">Profit / bulk</th>
                 <th className="px-4 py-3 text-right">Margin %</th>
                 <th className="px-4 py-3 text-right">Markup %</th>
                 <th className="px-4 py-3 text-right">Inventory Value</th>
@@ -358,15 +457,18 @@ export default function Inventory() {
                 const profitCase = profitPiece * ppcRow;
                 const parts = computeProfitParts(
                   landedCostTotal(p),
-                  p.sellingPrice
+                  p.sellingPrice,
                 );
                 const marginActual = parts.marginPct;
                 const markupActual = parts.markupPct;
                 const stockValue = landed * p.stockPieces;
                 const isOut = p.stockPieces === 0;
                 const isLow = !isOut && p.stockPieces <= p.reorderLevel;
-                const cases = ppcRow > 1 ? Math.floor(p.stockPieces / ppcRow) : 0;
-                const looseRow = ppcRow > 1 ? p.stockPieces - cases * ppcRow : p.stockPieces;
+                const baseLabelRow = baseUnitLabel(p.unit);
+                const bulkLabelRow = bulkUnitLabel(p.unit);
+                const splitRow = splitBulkAndBase(p.stockPieces, ppcRow);
+                const cases = splitRow.bulk;
+                const looseRow = splitRow.loose;
                 return (
                   <tr
                     key={p.id}
@@ -381,7 +483,9 @@ export default function Inventory() {
                               alt={p.name}
                               className="h-full w-full object-cover"
                               onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).style.display = "none";
+                                (
+                                  e.currentTarget as HTMLImageElement
+                                ).style.display = "none";
                               }}
                             />
                           ) : (
@@ -416,37 +520,57 @@ export default function Inventory() {
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {p.barcode} · {p.unit}
+                            {(p as Product & { size?: string }).size
+                              ? ` · Size: ${(p as Product & { size?: string }).size}`
+                              : ""}
                           </div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">{p.category}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {p.category}
+                    </td>
                     <td className="px-4 py-3 text-right">
                       <div
                         className={`font-semibold ${
-                          isOut ? "text-rose-600" : isLow ? "text-amber-600" : ""
+                          isOut
+                            ? "text-rose-600"
+                            : isLow
+                              ? "text-amber-600"
+                              : ""
                         }`}
                       >
                         {ppcRow > 1 ? (
                           <span>
-                            {cases}
-                            <span className="text-xs font-normal text-muted-foreground"> cs</span>
+                            {formatQtySmart(cases)}
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {" "}
+                              {bulkLabelRow}
+                            </span>
                             {" · "}
-                            {looseRow}
-                            <span className="text-xs font-normal text-muted-foreground"> pc</span>
+                            {formatQtySmart(looseRow)}
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {" "}
+                              {baseLabelRow}
+                            </span>
                           </span>
                         ) : (
                           <span>
-                            {formatNumber(p.stockPieces)}
-                            <span className="text-xs font-normal text-muted-foreground"> pc</span>
+                            {formatQtySmart(p.stockPieces)}
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {" "}
+                              {baseLabelRow}
+                            </span>
                           </span>
                         )}
                       </div>
                       <div className="text-[11px] text-muted-foreground">
-                        Total: {formatNumber(p.stockPieces)} pcs
+                        Total: {formatTotalBase(p.stockPieces, p.unit)}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right">{formatCurrency(landed)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {formatCurrency(landed)}
+                    </td>
                     <td className="px-4 py-3 text-right font-medium">
                       {formatCurrency(sellPerPiece)}
                     </td>
@@ -467,14 +591,17 @@ export default function Inventory() {
                     >
                       {ppcRow > 1 ? formatCurrency(profitCase) : "—"}
                     </td>
-                    <td className="px-4 py-3 text-right" title="Profit ÷ selling price">
+                    <td
+                      className="px-4 py-3 text-right"
+                      title="Profit ÷ selling price"
+                    >
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
                           marginActual >= 20
                             ? "bg-emerald-100 text-emerald-700"
                             : marginActual >= 10
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-rose-100 text-rose-700"
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-rose-100 text-rose-700"
                         }`}
                       >
                         {formatPct(marginActual)}
@@ -490,28 +617,39 @@ export default function Inventory() {
                     </td>
                     <td className="px-4 py-3">
                       {(() => {
-                        const exp = productExpiryStatus(p, batches, nearExpiryDays);
+                        const exp = productExpiryStatus(
+                          p,
+                          batches,
+                          nearExpiryDays,
+                        );
                         if (exp.status === "none")
-                          return <span className="text-xs text-muted-foreground">—</span>;
+                          return (
+                            <span className="text-xs text-muted-foreground">
+                              —
+                            </span>
+                          );
                         const date = exp.nextExpiry
-                          ? new Date(exp.nextExpiry).toLocaleDateString(undefined, {
-                              day: "2-digit",
-                              month: "short",
-                              year: "2-digit",
-                            })
+                          ? new Date(exp.nextExpiry).toLocaleDateString(
+                              undefined,
+                              {
+                                day: "2-digit",
+                                month: "short",
+                                year: "2-digit",
+                              },
+                            )
                           : "";
                         const cls =
                           exp.status === "expired"
                             ? "bg-rose-100 text-rose-700"
                             : exp.status === "near"
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-emerald-100 text-emerald-700";
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-emerald-100 text-emerald-700";
                         const label =
                           exp.status === "expired"
                             ? "Expired"
                             : exp.status === "near"
-                            ? `${exp.days}d left`
-                            : `${exp.days}d`;
+                              ? `${exp.days}d left`
+                              : `${exp.days}d`;
                         return (
                           <div className="flex flex-col">
                             <span
@@ -531,14 +669,40 @@ export default function Inventory() {
                         {canEdit && (
                           <>
                             <button
-                              onClick={() => { setStockBulk(0); setStockLoose(0); setStockReason(""); setStockExpiry(""); setStockOpen({ id: p.id, name: p.name, mode: "in", piecesPerCase: ppcRow, currentPieces: p.stockPieces }); }}
+                              onClick={() => {
+                                setStockBulk(0);
+                                setStockLoose(0);
+                                setStockReason("");
+                                setStockExpiry("");
+                                setStockOpen({
+                                  id: p.id,
+                                  name: p.name,
+                                  mode: "in",
+                                  piecesPerCase: ppcRow,
+                                  currentPieces: p.stockPieces,
+                                  unit: p.unit,
+                                });
+                              }}
                               title="Stock in"
                               className="rounded-md p-1.5 text-emerald-600 hover:bg-emerald-50"
                             >
                               <ArrowDownToLine className="h-4 w-4" />
                             </button>
                             <button
-                              onClick={() => { setStockBulk(0); setStockLoose(0); setStockReason(""); setStockExpiry(""); setStockOpen({ id: p.id, name: p.name, mode: "out", piecesPerCase: ppcRow, currentPieces: p.stockPieces }); }}
+                              onClick={() => {
+                                setStockBulk(0);
+                                setStockLoose(0);
+                                setStockReason("");
+                                setStockExpiry("");
+                                setStockOpen({
+                                  id: p.id,
+                                  name: p.name,
+                                  mode: "out",
+                                  piecesPerCase: ppcRow,
+                                  currentPieces: p.stockPieces,
+                                  unit: p.unit,
+                                });
+                              }}
                               title="Stock out"
                               className="rounded-md p-1.5 text-rose-600 hover:bg-rose-50"
                             >
@@ -574,7 +738,10 @@ export default function Inventory() {
               })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="px-4 py-12 text-center text-muted-foreground">
+                  <td
+                    colSpan={13}
+                    className="px-4 py-12 text-center text-muted-foreground"
+                  >
                     No products match your search.
                   </td>
                 </tr>
@@ -588,7 +755,9 @@ export default function Inventory() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editing ? "Edit Product" : "Add Product"}</DialogTitle>
+            <DialogTitle>
+              {editing ? "Edit Product" : "Add Product"}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Product name" full>
@@ -609,7 +778,9 @@ export default function Inventory() {
               {categoryOptions.length > 0 ? (
                 <select
                   value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, category: e.target.value })
+                  }
                   className={inputCls}
                 >
                   <option value="">— Select —</option>
@@ -620,13 +791,17 @@ export default function Inventory() {
                   ))}
                   {form.category &&
                     !categoryOptions.some((c) => c.value === form.category) && (
-                      <option value={form.category}>{form.category} (legacy)</option>
+                      <option value={form.category}>
+                        {form.category} (legacy)
+                      </option>
                     )}
                 </select>
               ) : (
                 <input
                   value={form.category}
-                  onChange={(e) => setForm({ ...form, category: e.target.value })}
+                  onChange={(e) =>
+                    setForm({ ...form, category: e.target.value })
+                  }
                   className={inputCls}
                 />
               )}
@@ -634,7 +809,9 @@ export default function Inventory() {
             <Field label="Supplier">
               <select
                 value={form.supplierId}
-                onChange={(e) => setForm({ ...form, supplierId: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, supplierId: e.target.value })
+                }
                 className={inputCls}
               >
                 <option value="">— Select —</option>
@@ -648,33 +825,54 @@ export default function Inventory() {
             <Field label="Unit type">
               <select
                 value={form.unit}
-                onChange={(e) => setForm({ ...form, unit: e.target.value as UnitType })}
+                onChange={(e) =>
+                  setForm({ ...form, unit: e.target.value as UnitType })
+                }
                 className={inputCls}
               >
-                {unitOptions.map((u) => (
-                  <option key={u.id} value={u.value}>
-                    {u.label}
-                  </option>
-                ))}
+                <option value="piece">Piece</option>
+                <option value="kg">KG</option>
+                <option value="g">Gram</option>
+                <option value="box">Box</option>
+                <option value="case">Case</option>
+                <option value="packet">Packet</option>
+                <option value="bottle">Bottle</option>
+                <option value="tin">Tin</option>
+                <option value="bag">Bag</option>
                 {!unitOptions.some((u) => u.value === form.unit) && (
                   <option value={form.unit}>{form.unit} (legacy)</option>
                 )}
               </select>
             </Field>
-            <Field label="Purchase price per case">
+            <Field label="Size / Option">
+              <input
+                value={form.size || ""}
+                onChange={(e) => setForm({ ...form, size: e.target.value })}
+                placeholder="Ex: 1KG, 500ML, XL, Large"
+                className={inputCls}
+              />
+            </Field>
+            <Field label={`Purchase price per ${bulkLabel}`}>
               <NumInput
                 value={form.purchasePrice}
                 onChange={(n) => setForm({ ...form, purchasePrice: n })}
                 className={inputCls}
               />
               <div className="mt-1 text-[10px] text-muted-foreground">
-                = piece price × {ppc} pcs/case
+                = {baseLabel} price × {ppc} {baseLabel}/{bulkLabel}
               </div>
             </Field>
-            <Field label="Purchase price per piece">
+            <Field label={`Purchase price per ${baseLabel}`}>
               <NumInput
                 value={ppc > 0 ? form.purchasePrice / ppc : 0}
-                onChange={(n) => setForm({ ...form, purchasePrice: +(n * Math.max(1, form.piecesPerCase || 1)).toFixed(4) })}
+                onChange={(n) =>
+                  setForm({
+                    ...form,
+                    purchasePrice: +(
+                      n * Math.max(1, form.piecesPerCase || 1)
+                    ).toFixed(4),
+                  })
+                }
                 className={inputCls}
               />
               <div className="mt-1 text-[10px] text-muted-foreground">
@@ -705,7 +903,10 @@ export default function Inventory() {
                 This is markup, not margin. Selling = cost × (1 + markup%).
               </div>
             </Field>
-            <Field label="Selling price (per unit, BEFORE GST)" full>
+            <Field
+              label={`Selling price per ${bulkLabel} / selling unit (BEFORE GST)`}
+              full
+            >
               <NumInput
                 value={form.sellingPrice}
                 onChange={(n) => setForm({ ...form, sellingPrice: n })}
@@ -721,35 +922,62 @@ export default function Inventory() {
                   Stock entry
                 </div>
                 <div className="text-[10px] text-muted-foreground">
-                  Current balance: <span className="font-semibold text-foreground">{existingStock}</span> pcs
-                  {ppc > 1 && <> · {existingCases} cs + {existingLoose} pc</>}
+                  Current balance:{" "}
+                  <span className="font-semibold text-foreground">
+                    {formatTotalBase(existingStock, form.unit)}
+                  </span>
+                  {ppc > 1 && (
+                    <> · {formatStockBalance(existingStock, ppc, form.unit)}</>
+                  )}
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Add bulk quantity (cases / boxes / packs)">
+                <Field label={`Add bulk quantity (${bulkLabel})`}>
                   <NumInput
                     value={addBulk}
                     min={0}
-                    allowDecimal={false}
-                    onChange={(n) => setAddBulk(Math.max(0, Math.floor(n || 0)))}
+                    allowDecimal={weighted}
+                    onChange={(n) =>
+                      setAddBulk(
+                        Math.max(
+                          0,
+                          weighted ? Number(n || 0) : Math.floor(n || 0),
+                        ),
+                      )
+                    }
                     className={inputCls}
                   />
                 </Field>
-                <Field label="Units per bulk (pieces per case)">
+                <Field label={`Units per ${bulkLabel} (${baseLabel})`}>
                   <NumInput
                     value={form.piecesPerCase}
                     min={1}
-                    allowDecimal={false}
-                    onChange={(n) => setForm({ ...form, piecesPerCase: Math.max(1, n) })}
+                    allowDecimal={weighted}
+                    onChange={(n) =>
+                      setForm({
+                        ...form,
+                        piecesPerCase: Math.max(
+                          1,
+                          weighted ? Number(n || 1) : Math.floor(n || 1),
+                        ),
+                      })
+                    }
                     className={inputCls}
                   />
                 </Field>
-                <Field label="Add loose pieces">
+                <Field label={`Add loose ${baseLabel}`}>
                   <NumInput
                     value={addLoose}
                     min={0}
-                    allowDecimal={false}
-                    onChange={(n) => setAddLoose(Math.max(0, Math.floor(n || 0)))}
+                    allowDecimal={weighted}
+                    onChange={(n) =>
+                      setAddLoose(
+                        Math.max(
+                          0,
+                          weighted ? Number(n || 0) : Math.floor(n || 0),
+                        ),
+                      )
+                    }
                     className={inputCls}
                   />
                 </Field>
@@ -761,10 +989,10 @@ export default function Inventory() {
                     className={`${inputCls} bg-muted/40 font-semibold`}
                   />
                   <div className="mt-1 text-[10px] text-muted-foreground">
-                    = bulk × units per bulk + loose pieces
+                    = bulk × units per bulk + loose units
                   </div>
                 </Field>
-                <Field label="Balance Qty (pieces) — auto" full>
+                <Field label={`Balance Qty (${baseLabel}) — auto`} full>
                   <input
                     type="text"
                     readOnly
@@ -772,8 +1000,16 @@ export default function Inventory() {
                     className={`${inputCls} bg-muted/40 text-base font-bold`}
                   />
                   <div className="mt-1 text-[10px] text-muted-foreground">
-                    {existingStock} (current) + {addedPieces} (added) = {newBalance} pcs
-                    {ppc > 1 && <> · {balCases} cs + {balLoose} pc</>}
+                    {formatTotalBase(existingStock, form.unit)} (current) +{" "}
+                    {formatTotalBase(addedPieces, form.unit)} (added) ={" "}
+                    {formatTotalBase(newBalance, form.unit)}
+                    {ppc > 1 && (
+                      <>
+                        {" "}
+                        · {formatQtySmart(balCases)} {bulkLabel} +{" "}
+                        {formatQtySmart(balLoose)} {baseLabel}
+                      </>
+                    )}
                   </div>
                 </Field>
                 <Field label="Buying person / Purchased by" full>
@@ -785,7 +1021,8 @@ export default function Inventory() {
                     <option value="">— Select buying person —</option>
                     {buyingPeople.map((u) => (
                       <option key={u.id} value={u.id}>
-                        {u.fullName}{u.isPurchasingStaff ? " · Purchasing" : ""}
+                        {u.fullName}
+                        {u.isPurchasingStaff ? " · Purchasing" : ""}
                       </option>
                     ))}
                   </select>
@@ -799,7 +1036,9 @@ export default function Inventory() {
               <input
                 type="date"
                 value={form.expiryDate ? form.expiryDate.slice(0, 10) : ""}
-                onChange={(e) => setForm({ ...form, expiryDate: e.target.value })}
+                onChange={(e) =>
+                  setForm({ ...form, expiryDate: e.target.value })
+                }
                 className={inputCls}
               />
             </Field>
@@ -821,7 +1060,8 @@ export default function Inventory() {
               <div className="text-sm text-foreground">
                 Is this product subject to GST?
                 <div className="text-xs text-muted-foreground">
-                  Cashier POS will automatically charge GST only on items marked GST applicable.
+                  Cashier POS will automatically charge GST only on items marked
+                  GST applicable.
                 </div>
               </div>
               <div className="flex gap-2">
@@ -857,36 +1097,51 @@ export default function Inventory() {
 
           <div className="rounded-xl border border-dashed border-border bg-secondary/40 p-3 text-xs">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Cost & price breakdown ({ppc} pcs / case)
+              Cost & price breakdown ({ppc} {baseLabel} / {bulkLabel})
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Stat label="Landed cost / case" value={formatCurrency(breakdown.landed)} />
-              <Stat label="Landed cost / piece" value={formatCurrency(landedPerPiece)} />
               <Stat
-                label="Suggested selling / case"
+                label="Landed cost / bulk"
+                value={formatCurrency(breakdown.landed)}
+              />
+              <Stat
+                label="Landed cost / unit"
+                value={formatCurrency(landedPerPiece)}
+              />
+              <Stat
+                label="Suggested selling / bulk"
                 value={formatCurrency(breakdown.baseSelling)}
                 accent
               />
               <Stat
-                label="Suggested selling / piece"
+                label="Suggested selling / unit"
                 value={formatCurrency(suggestedPerPiece)}
                 accent
               />
-              <Stat label="Selling / case (set)" value={formatCurrency(sellingPerCase)} />
-              <Stat label="Selling / piece (set)" value={formatCurrency(sellingPerPiece)} />
               <Stat
-                label="Profit / piece"
+                label="Selling / bulk (set)"
+                value={formatCurrency(sellingPerCase)}
+              />
+              <Stat
+                label="Selling / unit (set)"
+                value={formatCurrency(sellingPerPiece)}
+              />
+              <Stat
+                label="Profit / unit"
                 value={formatCurrency(profitPerPiece)}
                 tone={profitPerPiece >= 0 ? "good" : "bad"}
               />
               <Stat
-                label="Profit / case"
+                label="Profit / bulk"
                 value={formatCurrency(profitPerCase)}
                 tone={profitPerCase >= 0 ? "good" : "bad"}
               />
             </div>
             {(() => {
-              const parts = computeProfitParts(breakdown.landed, sellingPerCase);
+              const parts = computeProfitParts(
+                breakdown.landed,
+                sellingPerCase,
+              );
               return (
                 <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-2">
                   <Stat
@@ -902,9 +1157,18 @@ export default function Inventory() {
               );
             })()}
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Stat label={`GST (${tax.gstPct}%)`} value={formatCurrency(breakdown.gstAmount)} />
-              <Stat label="Customer pays incl. GST" value={formatCurrency(breakdown.finalPrice)} />
-              <Stat label="Total pieces in stock" value={formatNumber(form.stockPieces)} />
+              <Stat
+                label={`GST (${tax.gstPct}%)`}
+                value={formatCurrency(breakdown.gstAmount)}
+              />
+              <Stat
+                label="Customer pays incl. GST"
+                value={formatCurrency(breakdown.finalPrice)}
+              />
+              <Stat
+                label="Total stock"
+                value={formatTotalBase(form.stockPieces, form.unit)}
+              />
               <Stat
                 label="Inventory value"
                 value={formatCurrency(landedPerPiece * form.stockPieces)}
@@ -912,20 +1176,29 @@ export default function Inventory() {
             </div>
             <button
               type="button"
-              onClick={() => setForm({ ...form, sellingPrice: Math.round(breakdown.baseSelling * 100) / 100 })}
+              onClick={() =>
+                setForm({
+                  ...form,
+                  sellingPrice: Math.round(breakdown.baseSelling * 100) / 100,
+                })
+              }
               className="mt-3 text-xs font-medium text-primary underline-offset-2 hover:underline"
             >
               Use suggested pre-GST price →
             </button>
             <div className="mt-2 text-[10px] text-muted-foreground">
-              GST is applied only at POS checkout on GST-applicable items. Inventory
-              pricing stays GST-exclusive.
+              GST is applied only at POS checkout on GST-applicable items.
+              Inventory pricing stays GST-exclusive.
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={submit}>{editing ? "Save changes" : "Add product"}</Button>
+            <Button variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={submit}>
+              {editing ? "Save changes" : "Add product"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -964,7 +1237,14 @@ export default function Inventory() {
             </p>
           </div>
           <DialogFooter>
-            <Button onClick={() => { setTaxOpen(false); toast.success("Tax settings saved"); }}>Done</Button>
+            <Button
+              onClick={() => {
+                setTaxOpen(false);
+                toast.success("Tax settings saved");
+              }}
+            >
+              Done
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -984,56 +1264,117 @@ export default function Inventory() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              Stock {stockOpen?.mode === "in" ? "in" : "out"} — {stockOpen?.name}
+              Stock {stockOpen?.mode === "in" ? "in" : "out"} —{" "}
+              {stockOpen?.name}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             {stockOpen && stockOpen.mode === "in" && (
               <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs text-muted-foreground">
-                Current stock: <span className="font-semibold text-foreground">{stockOpen.currentPieces}</span> pcs
+                Current stock:{" "}
+                <span className="font-semibold text-foreground">
+                  {formatTotalBase(stockOpen.currentPieces, stockOpen.unit)}
+                </span>
                 {stockOpen.piecesPerCase > 1 && (
-                  <> · {Math.floor(stockOpen.currentPieces / stockOpen.piecesPerCase)} cs + {stockOpen.currentPieces % stockOpen.piecesPerCase} pc</>
+                  <>
+                    {" "}
+                    ·{" "}
+                    {formatStockBalance(
+                      stockOpen.currentPieces,
+                      stockOpen.piecesPerCase,
+                      stockOpen.unit,
+                    )}
+                  </>
                 )}
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">
-              <Field label={`Bulk qty (${stockOpen?.piecesPerCase ?? 1} pcs/case)`}>
+              <Field
+                label={`Bulk qty (${stockOpen ? bulkUnitLabel(stockOpen.unit) : "bulk"})`}
+              >
                 <NumInput
                   value={stockBulk}
                   min={0}
-                  allowDecimal={false}
-                  onChange={(n) => setStockBulk(n)}
+                  allowDecimal={
+                    stockOpen ? isWeightUnit(stockOpen.unit) : false
+                  }
+                  onChange={(n) =>
+                    setStockBulk(
+                      stockOpen && isWeightUnit(stockOpen.unit)
+                        ? Number(n || 0)
+                        : Math.floor(n || 0),
+                    )
+                  }
                   className={inputCls}
                 />
               </Field>
-              <Field label="Loose pieces">
+              <Field
+                label={`Loose ${stockOpen ? baseUnitLabel(stockOpen.unit) : "units"}`}
+              >
                 <NumInput
                   value={stockLoose}
                   min={0}
-                  allowDecimal={false}
-                  onChange={(n) => setStockLoose(n)}
+                  allowDecimal={
+                    stockOpen ? isWeightUnit(stockOpen.unit) : false
+                  }
+                  onChange={(n) =>
+                    setStockLoose(
+                      stockOpen && isWeightUnit(stockOpen.unit)
+                        ? Number(n || 0)
+                        : Math.floor(n || 0),
+                    )
+                  }
                   className={inputCls}
                 />
               </Field>
             </div>
-            <Field label="Total pieces (auto)">
+            <Field
+              label={`Total ${stockOpen ? baseUnitLabel(stockOpen.unit) : "units"} (auto)`}
+            >
               <input
                 type="text"
                 readOnly
                 value={stockTotalPieces}
                 className={`${inputCls} bg-muted/40 font-semibold`}
               />
-              {stockOpen && stockOpen.mode === "in" && stockTotalPieces > 0 && (() => {
-                const ppcD = Math.max(1, stockOpen.piecesPerCase);
-                const after = stockOpen.currentPieces + stockTotalPieces;
-                const cs = Math.floor(after / ppcD);
-                const lo = after - cs * ppcD;
-                return (
-                  <div className="mt-1 text-[10px] text-muted-foreground">
-                    After: {after} pcs{ppcD > 1 ? ` → ${cs} cs + ${lo} pc` : ""}
-                  </div>
-                );
-              })()}
+              {stockOpen &&
+                stockOpen.mode === "in" &&
+                stockTotalPieces > 0 &&
+                (() => {
+                  const ppcD = Math.max(1, stockOpen.piecesPerCase);
+                  const after = stockOpen.currentPieces + stockTotalPieces;
+                  const cs = Math.floor(after / ppcD);
+                  const lo = after - cs * ppcD;
+                  const selectedUnit = String(stockOpen.unit || "piece");
+
+                  const unitLabel =
+                    selectedUnit === "kg"
+                      ? "KG"
+                      : selectedUnit === "g"
+                        ? "Gram"
+                        : selectedUnit === "box"
+                          ? "Box"
+                          : selectedUnit === "case"
+                            ? "Case"
+                            : selectedUnit === "packet"
+                              ? "Packet"
+                              : selectedUnit === "bottle"
+                                ? "Bottle"
+                                : selectedUnit === "tin"
+                                  ? "Tin"
+                                  : selectedUnit === "bag"
+                                    ? "Bag"
+                                    : "Piece";
+
+                  return (
+                    <div className="mt-1 text-[10px] text-muted-foreground">
+                      After: {formatTotalBase(after, stockOpen.unit)}
+                      {ppcD > 1
+                        ? ` → ${formatStockBalance(after, ppcD, stockOpen.unit)}`
+                        : ""}
+                    </div>
+                  );
+                })()}
             </Field>
             {stockOpen?.mode === "in" && (
               <Field label="Buying person / Purchased by">
@@ -1045,12 +1386,14 @@ export default function Inventory() {
                   <option value="">— Select buying person —</option>
                   {buyingPeople.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.fullName}{u.isPurchasingStaff ? " · Purchasing" : ""}
+                      {u.fullName}
+                      {u.isPurchasingStaff ? " · Purchasing" : ""}
                     </option>
                   ))}
                 </select>
                 <div className="mt-1 text-[10px] text-muted-foreground">
-                  Who physically bought / arranged the goods. Separate from the user entering this record.
+                  Who physically bought / arranged the goods. Separate from the
+                  user entering this record.
                 </div>
               </Field>
             )}
@@ -1063,7 +1406,8 @@ export default function Inventory() {
                   className={inputCls}
                 />
                 <div className="mt-1 text-[10px] text-muted-foreground">
-                  Leave blank for items without an expiry date. Each stock-in is saved as a separate batch.
+                  Leave blank for items without an expiry date. Each stock-in is
+                  saved as a separate batch.
                 </div>
               </Field>
             )}
@@ -1071,13 +1415,19 @@ export default function Inventory() {
               <input
                 value={stockReason}
                 onChange={(e) => setStockReason(e.target.value)}
-                placeholder={stockOpen?.mode === "in" ? "Received, return, etc." : "Sold, transfer, etc."}
+                placeholder={
+                  stockOpen?.mode === "in"
+                    ? "Received, return, etc."
+                    : "Sold, transfer, etc."
+                }
                 className={inputCls}
               />
             </Field>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setStockOpen(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setStockOpen(null)}>
+              Cancel
+            </Button>
             <Button onClick={submitStock}>Confirm</Button>
           </DialogFooter>
         </DialogContent>
@@ -1116,10 +1466,10 @@ function Stat({ label, value, accent, tone }: StatProps) {
     tone === "good"
       ? "text-emerald-600"
       : tone === "bad"
-      ? "text-rose-600"
-      : accent
-      ? "text-primary"
-      : "";
+        ? "text-rose-600"
+        : accent
+          ? "text-primary"
+          : "";
   return (
     <div>
       <div className="text-muted-foreground">{label}</div>
@@ -1136,7 +1486,14 @@ interface StockHistoryDialogProps {
   batches: StockBatch[];
   nearExpiryDays: number;
 }
-function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nearExpiryDays }: StockHistoryDialogProps) {
+function StockHistoryDialog({
+  product,
+  onClose,
+  sales,
+  inventoryTx,
+  batches,
+  nearExpiryDays,
+}: StockHistoryDialogProps) {
   const txs = useMemo(() => {
     if (!product) return [] as InventoryTx[];
     return inventoryTx
@@ -1147,7 +1504,7 @@ function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nea
 
   const stockAddEntries = useMemo(
     () => txs.filter((t) => t.type === "in" || t.type === "receive"),
-    [txs]
+    [txs],
   );
   const lastAdded = stockAddEntries[0];
 
@@ -1159,7 +1516,7 @@ function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nea
       .flatMap((s) =>
         s.items
           .filter((i) => i.productId === product.id)
-          .map((i) => ({ date: s.date, qty: i.qty }))
+          .map((i) => ({ date: s.date, qty: i.qty })),
       );
     if (lines.length === 0) return null;
     const totalSold = lines.reduce((a, b) => a + b.qty, 0);
@@ -1195,12 +1552,16 @@ function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nea
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Stat
                 label="Current balance"
-                value={`${formatNumber(product.stockPieces)} pcs`}
+                value={formatTotalBase(product.stockPieces, product.unit)}
                 accent
               />
               <Stat
-                label="As cases + pieces"
-                value={ppc > 1 ? `${cases} cs + ${loose} pc` : `${product.stockPieces} pc`}
+                label="As bulk + loose"
+                value={
+                  ppc > 1
+                    ? formatStockBalance(product.stockPieces, ppc, product.unit)
+                    : formatTotalBase(product.stockPieces, product.unit)
+                }
               />
               <Stat
                 label="Last stock added"
@@ -1216,7 +1577,9 @@ function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nea
               />
               <Stat
                 label="Last added qty"
-                value={lastAdded ? `${formatNumber(lastAdded.qty)} pcs` : "—"}
+                value={
+                  lastAdded ? formatTotalBase(lastAdded.qty, product.unit) : "—"
+                }
               />
             </div>
 
@@ -1228,24 +1591,20 @@ function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nea
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <Stat
                     label="Total sold"
-                    value={`${formatNumber(speed.totalSold)} pcs`}
+                    value={formatTotalBase(speed.totalSold, product.unit)}
                   />
                   <Stat label="Tracked days" value={`${speed.days}`} />
                   <Stat
                     label="Avg / day"
-                    value={`${speed.perDay.toFixed(2)} pcs`}
+                    value={`${speed.perDay.toFixed(2)} ${baseUnitLabel(product.unit)}`}
                     accent
                   />
                   <Stat
                     label="Estimated days left"
                     value={
-                      daysLeft != null
-                        ? `${Math.round(daysLeft)} days`
-                        : "—"
+                      daysLeft != null ? `${Math.round(daysLeft)} days` : "—"
                     }
-                    tone={
-                      daysLeft != null && daysLeft < 7 ? "bad" : "good"
-                    }
+                    tone={daysLeft != null && daysLeft < 7 ? "bad" : "good"}
                   />
                 </div>
               ) : (
@@ -1272,7 +1631,7 @@ function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nea
                     <tr>
                       <th className="px-3 py-2 text-left">Date</th>
                       <th className="px-3 py-2 text-left">Type</th>
-                      <th className="px-3 py-2 text-right">Qty (pcs)</th>
+                      <th className="px-3 py-2 text-right">Qty</th>
                       <th className="px-3 py-2 text-left">Note</th>
                     </tr>
                   </thead>
@@ -1296,8 +1655,8 @@ function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nea
                                 isIn
                                   ? "bg-emerald-100 text-emerald-700"
                                   : t.type === "damage"
-                                  ? "bg-rose-100 text-rose-700"
-                                  : "bg-slate-200 text-slate-700"
+                                    ? "bg-rose-100 text-rose-700"
+                                    : "bg-slate-200 text-slate-700"
                               }`}
                             >
                               {t.type}
@@ -1309,7 +1668,7 @@ function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nea
                             }`}
                           >
                             {isIn ? "+" : "−"}
-                            {formatNumber(t.qty)}
+                            {formatTotalBase(t.qty, product.unit)}
                           </td>
                           <td className="px-3 py-2 text-muted-foreground">
                             {t.note ?? "—"}
@@ -1334,7 +1693,9 @@ function StockHistoryDialog({ product, onClose, sales, inventoryTx, batches, nea
           </div>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -1346,18 +1707,20 @@ interface ProductBatchesPanelProps {
   batches: StockBatch[];
   nearExpiryDays: number;
 }
-function ProductBatchesPanel({ product, batches, nearExpiryDays }: ProductBatchesPanelProps) {
+function ProductBatchesPanel({
+  product,
+  batches,
+  nearExpiryDays,
+}: ProductBatchesPanelProps) {
   const own = useMemo(
-    () =>
-      sortBatchesFifo(
-        batches.filter((b) => b.productId === product.id)
-      ),
-    [batches, product.id]
+    () => sortBatchesFifo(batches.filter((b) => b.productId === product.id)),
+    [batches, product.id],
   );
   if (own.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-secondary/30 p-3 text-xs text-muted-foreground">
-        No batch records yet. Future stock-ins with an expiry date will be tracked as separate batches here.
+        No batch records yet. Future stock-ins with an expiry date will be
+        tracked as separate batches here.
       </div>
     );
   }
@@ -1381,7 +1744,8 @@ function ProductBatchesPanel({ product, batches, nearExpiryDays }: ProductBatche
             {own.map((b) => {
               const days = daysUntilExpiry(b.expiryDate);
               const isExpired = days != null && days < 0;
-              const isNear = days != null && days >= 0 && days <= nearExpiryDays;
+              const isNear =
+                days != null && days >= 0 && days <= nearExpiryDays;
               const empty = b.remainingPieces <= 0;
               return (
                 <tr key={b.id} className="border-t border-border">
@@ -1399,8 +1763,8 @@ function ProductBatchesPanel({ product, batches, nearExpiryDays }: ProductBatche
                           isExpired
                             ? "font-semibold text-rose-600"
                             : isNear
-                            ? "font-semibold text-amber-600"
-                            : "text-foreground"
+                              ? "font-semibold text-amber-600"
+                              : "text-foreground"
                         }
                       >
                         {new Date(b.expiryDate).toLocaleDateString(undefined, {
@@ -1410,7 +1774,11 @@ function ProductBatchesPanel({ product, batches, nearExpiryDays }: ProductBatche
                         })}
                         {days != null && (
                           <span className="ml-1 text-[10px] text-muted-foreground">
-                            ({isExpired ? `${Math.abs(days)}d ago` : `${days}d left`})
+                            (
+                            {isExpired
+                              ? `${Math.abs(days)}d ago`
+                              : `${days}d left`}
+                            )
                           </span>
                         )}
                       </span>
@@ -1430,23 +1798,23 @@ function ProductBatchesPanel({ product, batches, nearExpiryDays }: ProductBatche
                         empty
                           ? "bg-slate-200 text-slate-600"
                           : isExpired
-                          ? "bg-rose-100 text-rose-700"
-                          : isNear
-                          ? "bg-amber-100 text-amber-700"
-                          : b.expiryDate
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-slate-100 text-slate-600"
+                            ? "bg-rose-100 text-rose-700"
+                            : isNear
+                              ? "bg-amber-100 text-amber-700"
+                              : b.expiryDate
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-slate-100 text-slate-600"
                       }`}
                     >
                       {empty
                         ? "Empty"
                         : isExpired
-                        ? "Expired"
-                        : isNear
-                        ? "Near expiry"
-                        : b.expiryDate
-                        ? "OK"
-                        : "—"}
+                          ? "Expired"
+                          : isNear
+                            ? "Near expiry"
+                            : b.expiryDate
+                              ? "OK"
+                              : "—"}
                     </span>
                   </td>
                 </tr>

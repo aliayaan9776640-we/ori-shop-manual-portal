@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { useOnlineAdminStore, orderToSaleItems } from "@/lib/onlineStore";
 import type { OnlineOrder, OnlineOrderStatus } from "@/lib/onlineStore";
-import { useStore, landedCostPerPiece } from "@/lib/store";
+import { useStore, landedCostPerPiece, useCurrentUser } from "@/lib/store";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -64,6 +64,8 @@ export default function OnlineOrders() {
   const rejectOrder = useOnlineAdminStore((s) => s.rejectOrder);
   const setStatus = useOnlineAdminStore((s) => s.setStatus);
   const assignDelivery = useOnlineAdminStore((s) => s.assignDelivery);
+  const acceptDelivery = useOnlineAdminStore((s) => s.acceptDelivery);
+  const updateDeliveryLocation = useOnlineAdminStore((s) => s.updateDeliveryLocation);
   const approveCustomer = useOnlineAdminStore((s) => s.approveCustomer);
   const rejectCustomer = useOnlineAdminStore((s) => s.rejectCustomer);
   const setCustomerCredit = useOnlineAdminStore((s) => s.setCustomerCredit);
@@ -71,6 +73,7 @@ export default function OnlineOrders() {
   const products = useStore((s) => s.products);
   const addSale = useStore((s) => s.addSale);
   const users = useStore((s) => s.users);
+  const currentUser = useCurrentUser();
 
   const [tab, setTab] = useState<string>("active");
   const [selected, setSelected] = useState<OnlineOrder | null>(null);
@@ -134,6 +137,71 @@ export default function OnlineOrders() {
     toast.success("Order rejected");
   };
 
+  const approveBankPayment = async (o: OnlineOrder): Promise<void> => {
+    const { data: sess } = await supabase.auth.getSession();
+    const uid = sess.session?.user.id ?? null;
+    let staffName: string | null = null;
+    if (uid) {
+      const { data: prof } = await supabase
+        .from("profiles")
+        .select("full_name,email")
+        .eq("id", uid)
+        .maybeSingle();
+      staffName =
+        (prof as { full_name?: string; email?: string } | null)?.full_name ??
+        (prof as { email?: string } | null)?.email ??
+        null;
+    }
+    const { error } = await supabase
+      .from("online_orders")
+      .update({
+        payment_status: "paid",
+        payment_approved_at: new Date().toISOString(),
+        payment_approved_by: staffName,
+      })
+      .eq("id", o.id);
+    if (error) {
+      toast.error("Payment approval failed: " + error.message);
+      return;
+    }
+    toast.success("Payment approved");
+    await load();
+  };
+
+  const shareDeliveryLocation = (o: OnlineOrder): void => {
+    if (!navigator.geolocation) {
+      toast.error("Location is not supported on this browser/device.");
+      return;
+    }
+    if (!o.deliveryStaffId) {
+      toast.error("Assign delivery ID before sharing delivery location.");
+      return;
+    }
+    if (currentUser?.id !== o.deliveryStaffId) {
+      toast.error("Only the assigned delivery ID can update live delivery location.");
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const res = await updateDeliveryLocation(
+          o.id,
+          lat,
+          lng,
+          `Lat ${lat.toFixed(6)}, Lng ${lng.toFixed(6)}`
+        );
+        if (!res.ok) {
+          toast.error(res.error || "Could not update delivery location");
+          return;
+        }
+        toast.success("Delivery live location updated");
+      },
+      (err) => toast.error(err.message || "Please allow location permission."),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+    );
+  };
+
   /** Convert accepted online order → POS sale (deducts inventory). */
   const convertToSale = async (o: OnlineOrder): Promise<void> => {
     const lookup = (productId: string) => {
@@ -174,18 +242,19 @@ export default function OnlineOrders() {
 
     const pm = o.paymentMethod === "cash" ? "cash" : o.paymentMethod === "bank" ? "bank" : "credit";
 
-    // Find or auto-create a credit customer linkage if needed.
+    // Credit can be used only when the online customer name + phone matches an approved POS credit customer.
     let customerId: string | undefined;
     if (pm === "credit") {
-      // Try to find existing credit customer by phone match.
-      const match = useStore
-        .getState()
-        .customers.find((c) => c.phone === o.customerPhone);
+      const normalizeName = (v: string) => String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+      const normalizePhone = (v: string) => String(v || "").replace(/\D/g, "");
+      const match = useStore.getState().customers.find((c) =>
+        normalizeName(c.name) === normalizeName(o.customerName) &&
+        normalizePhone(c.phone) === normalizePhone(o.customerPhone) &&
+        c.approvalStatus === "approved"
+      );
       customerId = match?.id;
       if (!customerId) {
-        toast.error(
-          "No matching credit customer found. Create one in Credit Customers and retry."
-        );
+        toast.error("Credit customer not matched. Name and phone must match an approved POS credit customer.");
         return;
       }
     }
@@ -240,15 +309,6 @@ export default function OnlineOrders() {
             )}
           </TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
-          <TabsTrigger value="customers">
-            Customers
-            {customers.filter((c) => c.approvalStatus === "pending").length >
-              0 && (
-              <span className="ml-2 rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
-                {customers.filter((c) => c.approvalStatus === "pending").length}
-              </span>
-            )}
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="active" className="mt-4">
@@ -265,92 +325,6 @@ export default function OnlineOrders() {
             onReject={setRejectFor}
           />
         </TabsContent>
-        <TabsContent value="customers" className="mt-4">
-          <div className="rounded-xl border border-border bg-card">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/40 text-left text-xs uppercase tracking-wider text-muted-foreground">
-                <tr>
-                  <th className="p-3">Name</th>
-                  <th className="p-3">Phone</th>
-                  <th className="p-3">Island</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3">Credit</th>
-                  <th className="p-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {customers.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-6 text-center text-muted-foreground">
-                      No customers yet.
-                    </td>
-                  </tr>
-                ) : (
-                  customers.map((c) => (
-                    <tr key={c.id} className="border-t border-border">
-                      <td className="p-3 font-medium">{c.name}</td>
-                      <td className="p-3">{c.phone}</td>
-                      <td className="p-3">{c.island}</td>
-                      <td className="p-3">
-                        <Badge
-                          className={
-                            c.approvalStatus === "approved"
-                              ? "bg-emerald-600"
-                              : c.approvalStatus === "rejected"
-                                ? "bg-rose-500"
-                                : "bg-amber-500"
-                          }
-                        >
-                          {c.approvalStatus}
-                        </Badge>
-                      </td>
-                      <td className="p-3 text-xs">
-                        {c.isCreditApproved ? (
-                          <span className="text-emerald-700">
-                            {MVR(c.creditLimit)} limit
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">No credit</span>
-                        )}
-                      </td>
-                      <td className="p-3">
-                        <div className="flex justify-end gap-2">
-                          {c.approvalStatus !== "approved" && (
-                            <Button
-                              size="sm"
-                              onClick={() => void approveCustomer(c.id)}
-                              className="bg-emerald-600 hover:bg-emerald-700"
-                            >
-                              <UserCheck className="mr-1 h-3 w-3" />
-                              Approve
-                            </Button>
-                          )}
-                          <CreditEditor
-                            customerId={c.id}
-                            currentLimit={c.creditLimit}
-                            currentApproved={c.isCreditApproved}
-                            onSave={(l, a) =>
-                              void setCustomerCredit(c.id, l, a)
-                            }
-                          />
-                          {c.approvalStatus !== "rejected" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void rejectCustomer(c.id)}
-                            >
-                              Reject
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </TabsContent>
       </Tabs>
 
       {/* Order detail dialog */}
@@ -362,7 +336,7 @@ export default function OnlineOrders() {
           {selected && (
             <>
               <DialogHeader>
-                <DialogTitle>{selected.orderNo}</DialogTitle>
+                <DialogTitle>{selected.orderNo || `ONL-${selected.id.slice(0, 8).toUpperCase()}`}</DialogTitle>
                 <DialogDescription>
                   {new Date(selected.createdAt).toLocaleString()} ·{" "}
                   {selected.customerName} · {selected.customerPhone}
@@ -370,15 +344,74 @@ export default function OnlineOrders() {
               </DialogHeader>
               <div className="space-y-3">
                 <div className="rounded-lg border border-border p-3 text-sm">
-                  <div className="text-xs text-muted-foreground">Deliver to</div>
-                  <div>
-                    {selected.customerIsland}
-                    {selected.customerIsland && selected.deliveryAddress && " · "}
-                    {selected.deliveryAddress}
+                  <div className="text-xs font-bold uppercase text-muted-foreground">Customer / Delivery Details</div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <div><b>Name:</b> {selected.customerName || "-"}</div>
+                    <div><b>Phone:</b> {selected.customerPhone || "-"}</div>
+                    <div><b>Island:</b> {selected.customerIsland || "-"}</div>
+                    <div><b>Address:</b> {selected.deliveryAddress || "-"}</div>
                   </div>
-                  {selected.notes && (
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      Note: {selected.notes}
+                  {selected.notes && <div className="mt-2 text-xs text-muted-foreground">Note: {selected.notes}</div>}
+
+                  {selected.currentLatitude && selected.currentLongitude && (
+                    <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
+                      <div className="mb-1 font-bold uppercase">Customer current location</div>
+                      <div>{selected.currentLocationText || `${selected.currentLatitude}, ${selected.currentLongitude}`}</div>
+                      <div className="mt-2 rounded-md bg-emerald-700 px-3 py-1.5 text-center text-xs font-bold text-white">
+                        Customer location shown below
+                      </div>
+                      <div className="mt-3 overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
+                        <iframe
+                          title="Customer location map"
+                          src={`https://maps.google.com/maps?q=${selected.currentLatitude},${selected.currentLongitude}&z=16&output=embed`}
+                          className="h-64 w-full"
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {selected.deliveryStaffLatitude && selected.deliveryStaffLongitude && (
+                    <div className="mt-3 rounded-lg border border-purple-200 bg-purple-50 p-3 text-xs text-purple-900">
+                      <div className="mb-1 font-bold uppercase">Delivery ID live location</div>
+                      <div>{selected.deliveryStaffLocationText || `${selected.deliveryStaffLatitude}, ${selected.deliveryStaffLongitude}`}</div>
+                      {selected.deliveryStaffLocationUpdatedAt && (
+                        <div className="mt-1">Last update: {new Date(selected.deliveryStaffLocationUpdatedAt).toLocaleString()}</div>
+                      )}
+                      <div className="mt-2 rounded-md bg-purple-700 px-3 py-1.5 text-center text-xs font-bold text-white">
+                        Delivery location shown below
+                      </div>
+                      <div className="mt-3 overflow-hidden rounded-xl border border-purple-200 bg-white shadow-sm">
+                        <iframe
+                          title="Delivery ID live location map"
+                          src={`https://maps.google.com/maps?q=${selected.deliveryStaffLatitude},${selected.deliveryStaffLongitude}&z=16&output=embed`}
+                          className="h-64 w-full"
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {selected.currentLatitude && selected.currentLongitude && selected.deliveryStaffLatitude && selected.deliveryStaffLongitude && (
+                    <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-900">
+                      <div className="mb-1 font-bold uppercase">Admin view: both locations</div>
+                      <div className="text-indigo-800">
+                        Customer and assigned delivery location are shown above directly inside this order window.
+                      </div>
+                    </div>
+                  )}
+
+                  {(selected as any).needBoatDelivery && (
+                    <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+                      <div className="mb-1 font-bold uppercase">Boat delivery requested</div>
+                      <div className="grid gap-1 sm:grid-cols-2">
+                        <div><b>Boat:</b> {(selected as any).boatName || "-"}</div>
+                        <div><b>Contact:</b> {(selected as any).boatContact || "-"}</div>
+                        <div><b>Location:</b> {(selected as any).boatLocation || "-"}</div>
+                        <div><b>Departure:</b> {[(selected as any).boatDepartureDate, (selected as any).boatDepartureTime].filter(Boolean).join(" ") || "-"}</div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -420,8 +453,23 @@ export default function OnlineOrders() {
                   <div className="rounded-lg border border-border p-3">
                     <div className="text-xs text-muted-foreground">Payment</div>
                     <div className="font-medium uppercase">
-                      {selected.paymentMethod}
+                      {selected.paymentMethod} · {selected.paymentStatus}
                     </div>
+                    {(selected as any).paymentSlipUrl && (
+                      <a
+                        href={(selected as any).paymentSlipUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 block text-xs text-sky-600 underline"
+                      >
+                        View payment slip
+                      </a>
+                    )}
+                    {selected.paymentMethod === "bank" && selected.paymentStatus !== "paid" && (
+                      <Button size="sm" className="mt-2 bg-emerald-600 hover:bg-emerald-700" onClick={() => void approveBankPayment(selected)}>
+                        Approve Payment
+                      </Button>
+                    )}
                   </div>
                   <div className="rounded-lg border border-border p-3">
                     <div className="text-xs text-muted-foreground">Status</div>
@@ -482,6 +530,44 @@ export default function OnlineOrders() {
                           </SelectContent>
                         </Select>
                       </div>
+
+                      {selected.deliveryStaffName && (
+                        <div className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                          <div><b>Assigned Delivery ID:</b> {selected.deliveryStaffName}</div>
+                          <div><b>Accepted:</b> {selected.deliveryStaffAccepted ? "Yes" : "No"}</div>
+                          {selected.deliveryStaffLocationUpdatedAt && (
+                            <div><b>Last live update:</b> {new Date(selected.deliveryStaffLocationUpdatedAt).toLocaleString()}</div>
+                          )}
+                        </div>
+                      )}
+
+                      {selected.deliveryStaffId === currentUser?.id && !selected.deliveryStaffAccepted && (
+                        <Button
+                          size="sm"
+                          className="bg-purple-600 hover:bg-purple-700"
+                          onClick={() =>
+                            void acceptDelivery(selected.id).then((r) => {
+                              if (!r.ok) toast.error(r.error || "Could not accept delivery");
+                              else toast.success("Delivery accepted");
+                            })
+                          }
+                        >
+                          <Truck className="mr-1 h-4 w-4" />
+                          Accept Delivery ID
+                        </Button>
+                      )}
+
+                      {selected.deliveryStaffId === currentUser?.id && selected.deliveryStaffAccepted && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                          onClick={() => shareDeliveryLocation(selected)}
+                        >
+                          <Truck className="mr-1 h-4 w-4" />
+                          Update My Live Location
+                        </Button>
+                      )}
                     </div>
                   )}
               </div>

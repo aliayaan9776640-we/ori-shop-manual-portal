@@ -328,6 +328,14 @@ export default function Settings() {
     bankAccountName: s.bankAccountName,
     bankAccountNumber: s.bankAccountNumber,
     bankBeneficiary: s.bankBeneficiary,
+    preorderBankName: s.preorderBankName,
+    preorderBankAccountName: s.preorderBankAccountName,
+    preorderBankAccountNumber: s.preorderBankAccountNumber,
+    preorderPaymentNote: s.preorderPaymentNote,
+    onlineBankName: s.onlineBankName,
+    onlineBankAccountName: s.onlineBankAccountName,
+    onlineBankAccountNumber: s.onlineBankAccountNumber,
+    onlinePaymentNote: s.onlinePaymentNote,
     quotationValidityDays: s.quotationValidityDays,
     quotationTerms: s.quotationTerms,
     nearExpiryDays: s.nearExpiryDays,
@@ -363,6 +371,14 @@ export default function Settings() {
           bankAccountName: fresh.bankAccountName,
           bankAccountNumber: fresh.bankAccountNumber,
           bankBeneficiary: fresh.bankBeneficiary,
+          preorderBankName: fresh.preorderBankName,
+          preorderBankAccountName: fresh.preorderBankAccountName,
+          preorderBankAccountNumber: fresh.preorderBankAccountNumber,
+          preorderPaymentNote: fresh.preorderPaymentNote,
+          onlineBankName: fresh.onlineBankName,
+          onlineBankAccountName: fresh.onlineBankAccountName,
+          onlineBankAccountNumber: fresh.onlineBankAccountNumber,
+          onlinePaymentNote: fresh.onlinePaymentNote,
           quotationValidityDays: fresh.quotationValidityDays,
           quotationTerms: fresh.quotationTerms,
           nearExpiryDays: fresh.nearExpiryDays,
@@ -796,6 +812,86 @@ export default function Settings() {
                     onChange={(v) => setForm((f) => ({ ...f, bankBeneficiary: v }))}
                   />
                 </div>
+              </div>
+            </div>
+
+            <div className="pos-card p-6">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                  <Landmark className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-foreground">Pre-Order Bank Transfer Details</h3>
+                  <p className="text-xs text-muted-foreground">Shown only on the Pre-Order bank transfer payment tab</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                <TextField
+                  label="Bank Name"
+                  value={form.preorderBankName}
+                  onChange={(v) => setForm((f) => ({ ...f, preorderBankName: v }))}
+                />
+                <TextField
+                  label="Account Name"
+                  value={form.preorderBankAccountName}
+                  onChange={(v) => setForm((f) => ({ ...f, preorderBankAccountName: v }))}
+                />
+                <TextField
+                  label="Account Number"
+                  value={form.preorderBankAccountNumber}
+                  onChange={(v) => setForm((f) => ({ ...f, preorderBankAccountNumber: v }))}
+                />
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-foreground">Payment Note</span>
+                  <textarea
+                    rows={3}
+                    value={form.preorderPaymentNote}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, preorderPaymentNote: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="pos-card p-6">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <CreditCard className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-foreground">Online Shop Bank Transfer Details</h3>
+                  <p className="text-xs text-muted-foreground">Shown only on the Online Shop checkout bank transfer tab</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3">
+                <TextField
+                  label="Bank Name"
+                  value={form.onlineBankName}
+                  onChange={(v) => setForm((f) => ({ ...f, onlineBankName: v }))}
+                />
+                <TextField
+                  label="Account Name"
+                  value={form.onlineBankAccountName}
+                  onChange={(v) => setForm((f) => ({ ...f, onlineBankAccountName: v }))}
+                />
+                <TextField
+                  label="Account Number"
+                  value={form.onlineBankAccountNumber}
+                  onChange={(v) => setForm((f) => ({ ...f, onlineBankAccountNumber: v }))}
+                />
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-foreground">Payment Note</span>
+                  <textarea
+                    rows={3}
+                    value={form.onlinePaymentNote}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, onlinePaymentNote: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                </label>
               </div>
             </div>
 

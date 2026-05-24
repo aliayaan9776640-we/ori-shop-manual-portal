@@ -42,6 +42,7 @@ export interface OnlineOrderItem {
   orderId: string;
   productId: string | null;
   productName: string;
+  productSize?: string;
   qty: number;
   unitPrice: number;
   lineTotal: number;
@@ -55,6 +56,21 @@ export interface OnlineOrder {
   customerPhone: string;
   customerIsland: string;
   deliveryAddress: string;
+  currentLocationText: string;
+  currentLocationUrl: string;
+  currentLatitude: number | null;
+  currentLongitude: number | null;
+  currentIslandDelivery?: boolean;
+  needBoatDelivery?: boolean;
+  boatName?: string;
+  boatContact?: string;
+  boatLocation?: string;
+  boatDepartureDate?: string | null;
+  boatDepartureTime?: string | null;
+  paymentSlipUrl?: string;
+  paymentApprovedAt?: string | null;
+  paymentApprovedBy?: string;
+  matchedCreditCustomerId?: string | null;
   status: OnlineOrderStatus;
   paymentMethod: OnlinePaymentMethod;
   paymentStatus: "unpaid" | "paid" | "failed";
@@ -65,6 +81,12 @@ export interface OnlineOrder {
   deliveryTime: string | null;
   deliveryStaffId: string | null;
   deliveryStaffName: string;
+  deliveryStaffAccepted?: boolean;
+  deliveryStaffLatitude?: number | null;
+  deliveryStaffLongitude?: number | null;
+  deliveryStaffLocationText?: string;
+  deliveryStaffLocationUrl?: string;
+  deliveryStaffLocationUpdatedAt?: string | null;
   acceptedAt: string | null;
   acceptedByName: string;
   deliveredAt: string | null;
@@ -114,6 +136,21 @@ interface OnlineOrderRow {
   customer_phone: string | null;
   customer_island: string | null;
   delivery_address: string | null;
+  current_location_text?: string | null;
+  current_location_url?: string | null;
+  current_latitude?: number | null;
+  current_longitude?: number | null;
+  current_island_delivery?: boolean | null;
+  need_boat_delivery?: boolean | null;
+  boat_name?: string | null;
+  boat_contact?: string | null;
+  boat_location?: string | null;
+  boat_departure_date?: string | null;
+  boat_departure_time?: string | null;
+  payment_slip_url?: string | null;
+  payment_approved_at?: string | null;
+  payment_approved_by?: string | null;
+  matched_credit_customer_id?: string | null;
   status: OnlineOrderStatus;
   payment_method: OnlinePaymentMethod;
   payment_status: "unpaid" | "paid" | "failed";
@@ -124,6 +161,12 @@ interface OnlineOrderRow {
   delivery_time: string | null;
   delivery_staff_id: string | null;
   delivery_staff_name: string | null;
+  delivery_staff_accepted?: boolean | null;
+  delivery_staff_latitude?: number | null;
+  delivery_staff_longitude?: number | null;
+  delivery_staff_location_text?: string | null;
+  delivery_staff_location_url?: string | null;
+  delivery_staff_location_updated_at?: string | null;
   accepted_at: string | null;
   accepted_by_name: string | null;
   delivered_at: string | null;
@@ -137,6 +180,7 @@ interface OrderItemRow {
   order_id: string;
   product_id: string | null;
   product_name: string;
+  product_size?: string | null;
   qty: number;
   unit_price: number;
   line_total: number;
@@ -150,6 +194,21 @@ const rowToOrder = (r: OnlineOrderRow, items: OrderItemRow[] = []): OnlineOrder 
   customerPhone: r.customer_phone ?? "",
   customerIsland: r.customer_island ?? "",
   deliveryAddress: r.delivery_address ?? "",
+  currentLocationText: r.current_location_text ?? "",
+  currentLocationUrl: r.current_location_url ?? "",
+  currentLatitude: r.current_latitude ?? null,
+  currentLongitude: r.current_longitude ?? null,
+  currentIslandDelivery: r.current_island_delivery ?? true,
+  needBoatDelivery: r.need_boat_delivery ?? false,
+  boatName: r.boat_name ?? "",
+  boatContact: r.boat_contact ?? "",
+  boatLocation: r.boat_location ?? "",
+  boatDepartureDate: r.boat_departure_date ?? null,
+  boatDepartureTime: r.boat_departure_time ?? null,
+  paymentSlipUrl: r.payment_slip_url ?? "",
+  paymentApprovedAt: r.payment_approved_at ?? null,
+  paymentApprovedBy: r.payment_approved_by ?? "",
+  matchedCreditCustomerId: r.matched_credit_customer_id ?? null,
   status: r.status,
   paymentMethod: r.payment_method,
   paymentStatus: r.payment_status,
@@ -160,6 +219,12 @@ const rowToOrder = (r: OnlineOrderRow, items: OrderItemRow[] = []): OnlineOrder 
   deliveryTime: r.delivery_time,
   deliveryStaffId: r.delivery_staff_id,
   deliveryStaffName: r.delivery_staff_name ?? "",
+  deliveryStaffAccepted: r.delivery_staff_accepted ?? false,
+  deliveryStaffLatitude: r.delivery_staff_latitude ?? null,
+  deliveryStaffLongitude: r.delivery_staff_longitude ?? null,
+  deliveryStaffLocationText: r.delivery_staff_location_text ?? "",
+  deliveryStaffLocationUrl: r.delivery_staff_location_url ?? "",
+  deliveryStaffLocationUpdatedAt: r.delivery_staff_location_updated_at ?? null,
   acceptedAt: r.accepted_at,
   acceptedByName: r.accepted_by_name ?? "",
   deliveredAt: r.delivered_at,
@@ -173,6 +238,7 @@ const rowToOrder = (r: OnlineOrderRow, items: OrderItemRow[] = []): OnlineOrder 
       orderId: i.order_id,
       productId: i.product_id,
       productName: i.product_name,
+      productSize: i.product_size ?? "",
       qty: i.qty,
       unitPrice: Number(i.unit_price) || 0,
       lineTotal: Number(i.line_total) || 0,
@@ -184,6 +250,7 @@ const rowToOrder = (r: OnlineOrderRow, items: OrderItemRow[] = []): OnlineOrder 
 export interface CartLine {
   productId: string;
   productName: string;
+  productSize?: string;
   /** Price per piece (base unit). Cart total = qty (in pieces) * unitPrice. */
   unitPrice: number;
   /** Quantity in pieces (so stock_pieces deducts cleanly). */
@@ -230,6 +297,18 @@ interface CustomerStoreState {
     paymentMethod: OnlinePaymentMethod;
     notes?: string;
     deliveryAddress?: string;
+    currentLocationText?: string;
+    currentLocationUrl?: string;
+    currentLatitude?: number | null;
+    currentLongitude?: number | null;
+    currentIslandDelivery?: boolean;
+    needBoatDelivery?: boolean;
+    boatName?: string;
+    boatContact?: string;
+    boatLocation?: string;
+    boatDepartureDate?: string;
+    boatDepartureTime?: string;
+    paymentSlipUrl?: string;
   }) => Promise<{ ok: boolean; orderId?: string; error?: string }>;
   loadMyOrders: () => Promise<void>;
   cancelOrder: (orderId: string) => Promise<void>;
@@ -397,62 +476,101 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
 
   clearCart: () => set({ cart: [] }),
 
-  placeOrder: async ({ paymentMethod, notes, deliveryAddress }) => {
+  placeOrder: async ({
+    paymentMethod,
+    notes,
+    deliveryAddress,
+    currentLocationText,
+    currentLocationUrl,
+    currentLatitude,
+    currentLongitude,
+    currentIslandDelivery = true,
+    needBoatDelivery = false,
+    boatName,
+    boatContact,
+    boatLocation,
+    boatDepartureDate,
+    boatDepartureTime,
+    paymentSlipUrl,
+  }) => {
     const c = get().customer;
     if (!c) {
-      return {
-        ok: false,
-        error: "Please register and get approval before placing orders.",
-      };
+      return { ok: false, error: "Please register and sign in before placing orders." };
     }
-    // Always re-check approval status against Supabase before inserting,
-    // so a stale local state can never bypass the gate.
+
     const { data: fresh, error: freshErr } = await customerSupabase
       .from("public_customers")
       .select("approval_status,active")
       .eq("id", c.id)
       .maybeSingle();
-    if (freshErr) {
-      console.error("[onlineStore] approval recheck failed", freshErr);
-      return { ok: false, error: freshErr.message };
-    }
+    if (freshErr) return { ok: false, error: freshErr.message };
     const active = (fresh as { active?: boolean } | null)?.active ?? true;
     if (!active) {
       set({ customer: { ...c, active } });
-      return {
-        ok: false,
-        error: "Your account is inactive. Please contact the shop.",
-      };
+      return { ok: false, error: "Your account is inactive. Please contact the shop." };
     }
-    if (paymentMethod === "credit" && !c.isCreditApproved) {
-      return { ok: false, error: "Credit not approved for this account" };
-    }
+
     const cart = get().cart;
     if (cart.length === 0) return { ok: false, error: "Cart is empty" };
+    const subtotal = cart.reduce((sum, x) => sum + x.qty * x.unitPrice, 0);
 
-    const subtotal = cart.reduce((s, x) => s + x.qty * x.unitPrice, 0);
-
+    let matchedCreditCustomerId: string | null = null;
     if (paymentMethod === "credit") {
-      const projected = c.creditBalance + subtotal;
-      if (projected > c.creditLimit) {
-        return {
-          ok: false,
-          error: `Credit limit exceeded (limit MVR ${c.creditLimit.toFixed(2)})`,
-        };
+      const { data: match, error: matchErr } = await customerSupabase.rpc(
+        "match_approved_credit_customer",
+        { p_name: c.name, p_phone: c.phone }
+      );
+      if (matchErr) {
+        return { ok: false, error: "Credit checking failed. Ask admin to run the latest SQL fix." };
+      }
+      const row = Array.isArray(match) ? match[0] : null;
+      if (!row?.id) {
+        return { ok: false, error: "Credit is available only for approved credit customers with matching name and phone." };
+      }
+      const limit = Number(row.credit_limit || 0);
+      const balance = Number(row.balance || 0);
+      if (balance + subtotal > limit) {
+        return { ok: false, error: `Credit limit exceeded. Available MVR ${Math.max(0, limit - balance).toFixed(2)}` };
+      }
+      matchedCreditCustomerId = row.id;
+    }
+
+    if (paymentMethod === "bank" && !paymentSlipUrl) {
+      return { ok: false, error: "Please upload the bank transfer payment slip." };
+    }
+
+    if (needBoatDelivery) {
+      if (!boatName?.trim() || !boatContact?.trim() || !boatLocation?.trim()) {
+        return { ok: false, error: "Please fill boat name, contact number and boat location." };
       }
     }
 
+    const orderNo = `ONL-${Date.now().toString(36).toUpperCase().slice(-6)}`;
     const { data: orderRow, error: orderErr } = await customerSupabase
       .from("online_orders")
       .insert({
+        order_no: orderNo,
         customer_id: c.id,
         customer_name: c.name,
         customer_phone: c.phone,
         customer_island: c.island,
         delivery_address: deliveryAddress || c.address,
+        current_location_text: currentLocationText || null,
+        current_location_url: currentLocationUrl || null,
+        current_latitude: currentLatitude ?? null,
+        current_longitude: currentLongitude ?? null,
+        current_island_delivery: currentIslandDelivery,
+        need_boat_delivery: needBoatDelivery,
+        boat_name: needBoatDelivery ? boatName || null : null,
+        boat_contact: needBoatDelivery ? boatContact || null : null,
+        boat_location: needBoatDelivery ? boatLocation || null : null,
+        boat_departure_date: needBoatDelivery ? boatDepartureDate || null : null,
+        boat_departure_time: needBoatDelivery ? boatDepartureTime || null : null,
+        payment_slip_url: paymentMethod === "bank" ? paymentSlipUrl || null : null,
+        matched_credit_customer_id: matchedCreditCustomerId,
         status: "pending",
         payment_method: paymentMethod,
-        payment_status: "unpaid",
+        payment_status: paymentMethod === "bank" ? "unpaid" : "unpaid",
         subtotal,
         total: subtotal,
         notes: notes || null,
@@ -466,15 +584,13 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
       order_id: orderId,
       product_id: line.productId,
       product_name: line.productName,
+      product_size: line.productSize || null,
       qty: line.qty,
       unit_price: line.unitPrice,
       line_total: line.qty * line.unitPrice,
     }));
-    const { error: itemsErr } = await customerSupabase
-      .from("online_order_items")
-      .insert(itemsRows);
+    const { error: itemsErr } = await customerSupabase.from("online_order_items").insert(itemsRows);
     if (itemsErr) {
-      // rollback order so we don't leave a phantom
       await customerSupabase.from("online_orders").delete().eq("id", orderId);
       return { ok: false, error: itemsErr.message };
     }
@@ -543,6 +659,13 @@ interface AdminOnlineState {
     staffId: string,
     staffName: string
   ) => Promise<void>;
+  acceptDelivery: (orderId: string) => Promise<{ ok: boolean; error?: string }>;
+  updateDeliveryLocation: (
+    orderId: string,
+    lat: number,
+    lng: number,
+    label?: string
+  ) => Promise<{ ok: boolean; error?: string }>;
   approveCustomer: (customerId: string, creditLimit?: number) => Promise<void>;
   rejectCustomer: (customerId: string) => Promise<void>;
   setCustomerCredit: (customerId: string, limit: number, approved: boolean) => Promise<void>;
@@ -692,6 +815,7 @@ export const useOnlineAdminStore = create<AdminOnlineState>((set, get) => ({
       .update({
         delivery_staff_id: staffId,
         delivery_staff_name: staffName,
+        delivery_staff_accepted: false,
       })
       .eq("id", orderId);
     if (error) {
@@ -699,6 +823,53 @@ export const useOnlineAdminStore = create<AdminOnlineState>((set, get) => ({
       return;
     }
     await get().load();
+  },
+
+  acceptDelivery: async (orderId) => {
+    const { data: sess } = await supabase.auth.getSession();
+    const uid = sess.session?.user.id ?? null;
+    if (!uid) return { ok: false, error: "Please login again." };
+
+    const order = get().orders.find((o) => o.id === orderId);
+    if (!order) return { ok: false, error: "Order not found" };
+    if (order.deliveryStaffId !== uid) {
+      return { ok: false, error: "Only assigned delivery ID can accept this order." };
+    }
+
+    const { error } = await supabase
+      .from("online_orders")
+      .update({ delivery_staff_accepted: true })
+      .eq("id", orderId);
+    if (error) return { ok: false, error: error.message };
+    await get().load();
+    return { ok: true };
+  },
+
+  updateDeliveryLocation: async (orderId, lat, lng, label) => {
+    const { data: sess } = await supabase.auth.getSession();
+    const uid = sess.session?.user.id ?? null;
+    if (!uid) return { ok: false, error: "Please login again." };
+
+    const order = get().orders.find((o) => o.id === orderId);
+    if (!order) return { ok: false, error: "Order not found" };
+    if (order.deliveryStaffId !== uid) {
+      return { ok: false, error: "Only assigned delivery ID can update live location." };
+    }
+
+    const url = `https://www.google.com/maps?q=${lat},${lng}`;
+    const { error } = await supabase
+      .from("online_orders")
+      .update({
+        delivery_staff_latitude: lat,
+        delivery_staff_longitude: lng,
+        delivery_staff_location_text: label || `Lat ${lat.toFixed(6)}, Lng ${lng.toFixed(6)}`,
+        delivery_staff_location_url: url,
+        delivery_staff_location_updated_at: new Date().toISOString(),
+      })
+      .eq("id", orderId);
+    if (error) return { ok: false, error: error.message };
+    await get().load();
+    return { ok: true };
   },
 
   approveCustomer: async (customerId, creditLimit) => {

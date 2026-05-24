@@ -29,6 +29,16 @@ export interface PosSettings {
   bankAccountName: string;
   bankAccountNumber: string;
   bankBeneficiary: string;
+  // Bank details for Pre-Order payment tab
+  preorderBankName: string;
+  preorderBankAccountName: string;
+  preorderBankAccountNumber: string;
+  preorderPaymentNote: string;
+  // Bank details for Online Shop checkout bank transfer tab
+  onlineBankName: string;
+  onlineBankAccountName: string;
+  onlineBankAccountNumber: string;
+  onlinePaymentNote: string;
   // Quotation terms & validity
   quotationValidityDays: number;
   quotationTerms: string;
@@ -79,6 +89,14 @@ export const useSettings = create<PosSettings>()(
       bankAccountName: "ORI BARAKAH STORE",
       bankAccountNumber: "7770000190257",
       bankBeneficiary: "Ibrahim Ayaan",
+      preorderBankName: "Bank of Maldives",
+      preorderBankAccountName: "ORI BARAKAH STORE",
+      preorderBankAccountNumber: "7770000190257",
+      preorderPaymentNote: "Please transfer and upload payment slip.",
+      onlineBankName: "Bank of Maldives",
+      onlineBankAccountName: "ORI BROTHERS",
+      onlineBankAccountNumber: "7717334505",
+      onlinePaymentNote: "Please transfer and upload payment slip.",
       nearExpiryDays: 7,
       blockExpiredSale: false,
       expiryAlertsEnabled: true,

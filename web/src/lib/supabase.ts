@@ -74,5 +74,5 @@ export const customerSupabase: SupabaseClient = createClient(
 /** Synthetic email used for customer auth (Supabase Auth requires an email). */
 export const customerEmailFromPhone = (phone: string): string => {
   const clean = phone.replace(/[^0-9a-zA-Z]/g, "").toLowerCase();
-  return `c${clean}@customers.ori.local`;
+return `c${clean}@oribarakah.com`;
 };

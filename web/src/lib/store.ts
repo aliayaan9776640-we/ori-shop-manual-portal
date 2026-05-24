@@ -296,7 +296,8 @@ interface AppState {
     items: SaleItem[],
     paymentMethod: Sale["paymentMethod"],
     customerId?: string,
-    change?: number
+    change?: number,
+    opts?: { bankTransferName?: string; bankTransferPhone?: string }
   ) => Sale;
   /** Admin-only. Voids a sale, restores stock, reverses credit, logs the action. */
   voidSale: (id: string, reason: string) => { ok: boolean; error?: string };
@@ -546,6 +547,8 @@ export const useStore = create<AppState>()((set, get) => ({
         user_id: string | null;
         drawer_id: string | null;
         change_given: number | string | null;
+        bank_transfer_name?: string | null;
+        bank_transfer_phone?: string | null;
         created_at: string;
         voided?: boolean | null;
         voided_at?: string | null;
@@ -602,6 +605,8 @@ export const useStore = create<AppState>()((set, get) => ({
           cashierId: s.user_id ?? "",
           drawerId: s.drawer_id ?? undefined,
           change: Number(s.change_given ?? 0) || 0,
+          bankTransferName: s.bank_transfer_name ?? undefined,
+          bankTransferPhone: s.bank_transfer_phone ?? undefined,
           voided: s.voided ?? undefined,
           voidedAt: s.voided_at ?? undefined,
           voidedBy: s.voided_by ?? undefined,
@@ -934,17 +939,42 @@ export const useStore = create<AppState>()((set, get) => ({
       ? rowToUser(profileRow as ProfileRow)
       : null;
 
-    if (!profile) {
-      await supabase.auth.signOut();
-      set({ currentUserId: null });
-      return {
-        ok: false,
-        error: "No profile found for this account. Contact an admin.",
-      };
+    let fixedProfile = profile;
+
+    if (!fixedProfile) {
+      const masterEmail = "sales@oribrothers.com";
+      const isMaster =
+        (authUser.email || "").trim().toLowerCase() === masterEmail;
+
+      const { data: repairedProfile, error: repairErr } = await supabase
+        .from("profiles")
+        .upsert(
+          {
+            id: authUser.id,
+            email: authUser.email || masterEmail,
+            full_name: isMaster ? "ORI Brothers Master Admin" : authUser.email || "Staff User",
+            role: isMaster ? "admin" : "cashier",
+            active: true,
+          },
+          { onConflict: "id" }
+        )
+        .select("*")
+        .single();
+
+      if (repairErr || !repairedProfile) {
+        await supabase.auth.signOut();
+        set({ currentUserId: null });
+        return {
+          ok: false,
+          error: "Could not repair staff profile. Please try again.",
+        };
+      }
+
+      fixedProfile = rowToUser(repairedProfile as ProfileRow);
     }
 
-    if (!profile.active) {
-      console.warn("[login] blocked inactive user", profile.email);
+    if (!fixedProfile.active) {
+      console.warn("[login] blocked inactive user", fixedProfile.email);
       await supabase.auth.signOut();
       set({ currentUserId: null, hydrated: true });
       return { ok: false, error: "Account is deactivated. Contact an admin." };
@@ -958,8 +988,8 @@ export const useStore = create<AppState>()((set, get) => ({
     console.log("[login] success", {
       email: authUser.email,
       id: authUser.id,
-      role: profile?.role ?? "(no profile)",
-      fullName: profile?.fullName,
+      role: fixedProfile?.role ?? "(no profile)",
+      fullName: fixedProfile?.fullName,
     });
 
     // 6. Reload all data for the new user.
@@ -1008,6 +1038,50 @@ export const useStore = create<AppState>()((set, get) => ({
     }
 
     const email = u.email.trim().toLowerCase();
+
+    // Preferred permanent deployment path: create staff/admin with the
+    // Supabase Edge Function `admin-create-user`. That function uses the
+    // service role key server-side and creates the user as already confirmed,
+    // so staff can login immediately even when customer email confirmation is ON.
+    try {
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke(
+        "admin-create-user",
+        {
+          body: {
+            email,
+            password: u.password,
+            fullName: u.fullName,
+            role: u.role,
+            active: u.active,
+          },
+        }
+      );
+
+      if (!fnErr && fnData?.id) {
+        const newU: User = {
+          id: fnData.id,
+          username: email,
+          email,
+          fullName: u.fullName,
+          role: u.role,
+          active: u.active,
+          createdAt: new Date().toISOString(),
+        };
+        set({ users: [...get().users.filter((x) => x.id !== newU.id), newU] });
+        get().log("user.create", `Created confirmed user ${email} (${u.role})`);
+        return { ok: true };
+      }
+
+      // If the function is not deployed yet, fall back to the old signUp flow below.
+      if (fnErr) {
+        console.warn("[addUser] admin-create-user function unavailable, using fallback", fnErr.message);
+      }
+    } catch (e) {
+      console.warn("[addUser] admin-create-user function failed, using fallback", e);
+    }
+
+    // Fallback path: works only when Confirm Email is OFF in Supabase Auth.
+    // For production, deploy supabase/functions/admin-create-user/index.ts.
 
     // Force signUp-only flow: use a secondary Supabase client so the admin's
     // session in the main client is NOT replaced by the new user's session.
@@ -1537,7 +1611,7 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   /* ------------------------ sales ---------------------------------- */
-  addSale: (items, paymentMethod, customerId, change) => {
+  addSale: (items, paymentMethod, customerId, change, opts) => {
     const total = items.reduce((s, x) => s + x.total, 0);
     const profit = items.reduce((s, x) => s + x.profit, 0);
     const localSaleId = localId("sl");
@@ -1567,13 +1641,45 @@ export const useStore = create<AppState>()((set, get) => ({
       cashierId,
       drawerId,
       change: paymentMethod === "cash" && change && change > 0 ? +change.toFixed(2) : 0,
+      bankTransferName:
+        paymentMethod === "bank" ? opts?.bankTransferName?.trim() || undefined : undefined,
+      bankTransferPhone:
+        paymentMethod === "bank" ? opts?.bankTransferPhone?.trim() || undefined : undefined,
     };
-    // optimistic
+    // Strict POS stock deduction.
+    // Inventory is stored internally as TOTAL PIECES.
+    // Case sales are already converted by Sales.tsx:
+    // case qty × piecesPerCase = SaleItem.qty.
+    const soldPiecesByProduct = new Map<string, number>();
+    for (const it of items) {
+      soldPiecesByProduct.set(
+        it.productId,
+        (soldPiecesByProduct.get(it.productId) ?? 0) + it.qty
+      );
+    }
+
+    const stockAfterByProduct = new Map<string, number>();
+    for (const [productId, soldPieces] of soldPiecesByProduct.entries()) {
+      const p = get().products.find((x) => x.id === productId);
+      if (!p) {
+        throw new Error("Product not found in inventory");
+      }
+      if (p.stockPieces <= 0) {
+        throw new Error(`${p.name} is out of stock`);
+      }
+      if (p.stockPieces < soldPieces) {
+        throw new Error(
+          `${p.name} has only ${p.stockPieces} pcs available. Requested ${soldPieces} pcs.`
+        );
+      }
+      stockAfterByProduct.set(productId, p.stockPieces - soldPieces);
+    }
+
     const products = get().products.map((p) => {
-      const it = items.find((x) => x.productId === p.id);
-      if (!it) return p;
-      return { ...p, stockPieces: Math.max(0, p.stockPieces - it.qty) };
+      const nextStock = stockAfterByProduct.get(p.id);
+      return nextStock === undefined ? p : { ...p, stockPieces: nextStock };
     });
+
     let creditTx = get().creditTx;
     let customers = get().customers;
     if (paymentMethod === "credit" && customerId) {
@@ -1607,7 +1713,7 @@ export const useStore = create<AppState>()((set, get) => ({
     }
     get().log(
       "sale.create",
-      `Sale ${sale.id} total ${total.toFixed(2)} (${paymentMethod})`
+      `Sale ${sale.id} total ${total.toFixed(2)} (${paymentMethod}${paymentMethod === "bank" && sale.bankTransferName ? ` · ${sale.bankTransferName}` : ""})`
     );
 
     if (isSupabaseConfigured) {
@@ -1622,6 +1728,8 @@ export const useStore = create<AppState>()((set, get) => ({
             user_id: get().currentUserId,
             drawer_id: drawerId ?? null,
             change_given: sale.change ?? 0,
+            bank_transfer_name: sale.bankTransferName ?? null,
+            bank_transfer_phone: sale.bankTransferPhone ?? null,
           })
           .select()
           .single();
@@ -1640,14 +1748,23 @@ export const useStore = create<AppState>()((set, get) => ({
         }));
         const { error: siErr } = await supabase.from("sale_items").insert(itemsRows);
         logErr("sale_items.insert", siErr);
-        // update each product stock
-        for (const it of items) {
-          const p = get().products.find((pp) => pp.id === it.productId);
-          if (!p) continue;
-          await supabase
+        // Persist exact POS stock balance to Supabase.
+        // This writes the same balance already applied locally, so POS and
+        // Inventory stay matched after refresh.
+        for (const [productId, nextStock] of stockAfterByProduct.entries()) {
+          const { error: stockErr } = await supabase
             .from("products")
-            .update({ stock_pieces: p.stockPieces })
-            .eq("id", it.productId);
+            .update({ stock_pieces: nextStock })
+            .eq("id", productId);
+
+          if (stockErr) {
+            notifyWriteError("products.stock_after_pos_sale", stockErr);
+            console.error("[POS INVENTORY UPDATE FAILED]", {
+              productId,
+              nextStock,
+              error: stockErr.message,
+            });
+          }
         }
         if (paymentMethod === "credit" && customerId) {
           const c = get().customers.find((x) => x.id === customerId);
@@ -1806,13 +1923,13 @@ export const useStore = create<AppState>()((set, get) => ({
       sales: get().sales.map((s) =>
         s.id === id
           ? {
-              ...s,
-              voided: true,
-              voidedAt: now,
-              voidedBy: me.id,
-              voidedByName: me.fullName,
-              voidReason: reason,
-            }
+            ...s,
+            voided: true,
+            voidedAt: now,
+            voidedBy: me.id,
+            voidedByName: me.fullName,
+            voidReason: reason,
+          }
           : s
       ),
       products,
@@ -1939,16 +2056,16 @@ export const useStore = create<AppState>()((set, get) => ({
       sales: get().sales.map((s) =>
         s.id === id
           ? {
-              ...s,
-              paymentMethod: patch.paymentMethod ?? s.paymentMethod,
-              customerId:
-                patch.customerId !== undefined
-                  ? patch.customerId || undefined
-                  : s.customerId,
-              editedAt: now,
-              editedBy: me.id,
-              editedByName: me.fullName,
-            }
+            ...s,
+            paymentMethod: patch.paymentMethod ?? s.paymentMethod,
+            customerId:
+              patch.customerId !== undefined
+                ? patch.customerId || undefined
+                : s.customerId,
+            editedAt: now,
+            editedBy: me.id,
+            editedByName: me.fullName,
+          }
           : s
       ),
     });
@@ -2123,11 +2240,11 @@ export const useStore = create<AppState>()((set, get) => ({
       orders: get().orders.map((o) =>
         o.id === oid
           ? {
-              ...o,
-              items: o.items.map((i) =>
-                i.productId === pid ? { ...i, receivedQty } : i
-              ),
-            }
+            ...o,
+            items: o.items.map((i) =>
+              i.productId === pid ? { ...i, receivedQty } : i
+            ),
+          }
           : o
       ),
       products: get().products.map((p) =>
@@ -2310,13 +2427,13 @@ export const useStore = create<AppState>()((set, get) => ({
       customers: get().customers.map((c) =>
         c.id === cid
           ? {
-              ...c,
-              approvalStatus: "approved",
-              creditLimit: finalLimit,
-              approvedBy: me?.id,
-              approvedByName: me?.fullName,
-              approvedAt,
-            }
+            ...c,
+            approvalStatus: "approved",
+            creditLimit: finalLimit,
+            approvedBy: me?.id,
+            approvedByName: me?.fullName,
+            approvedAt,
+          }
           : c
       ),
     });
@@ -2331,9 +2448,9 @@ export const useStore = create<AppState>()((set, get) => ({
         action: "approve",
         before: before
           ? {
-              approvalStatus: before.approvalStatus,
-              creditLimit: before.creditLimit,
-            }
+            approvalStatus: before.approvalStatus,
+            creditLimit: before.creditLimit,
+          }
           : null,
         after: { approvalStatus: "approved", creditLimit: finalLimit },
       })
@@ -2359,13 +2476,13 @@ export const useStore = create<AppState>()((set, get) => ({
       customers: get().customers.map((c) =>
         c.id === cid
           ? {
-              ...c,
-              approvalStatus: "rejected",
-              creditLimit: 0,
-              approvedBy: me?.id,
-              approvedByName: me?.fullName,
-              approvedAt,
-            }
+            ...c,
+            approvalStatus: "rejected",
+            creditLimit: 0,
+            approvedBy: me?.id,
+            approvedByName: me?.fullName,
+            approvedAt,
+          }
           : c
       ),
     });
@@ -2377,9 +2494,9 @@ export const useStore = create<AppState>()((set, get) => ({
         action: "reject",
         before: before
           ? {
-              approvalStatus: before.approvalStatus,
-              creditLimit: before.creditLimit,
-            }
+            approvalStatus: before.approvalStatus,
+            creditLimit: before.creditLimit,
+          }
           : null,
         after: { approvalStatus: "rejected", creditLimit: 0 },
       })

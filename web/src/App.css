@@ -40,3 +40,43 @@
 .read-the-docs {
   color: #888;
 }
+.input {
+  width: 100%;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  outline: none;
+}
+
+.input:focus {
+  border-color: #153f2f;
+  box-shadow: 0 0 0 3px rgba(21, 63, 47, 0.12);
+}
+
+.btn-primary {
+  background: #556b2f;
+  color: white;
+  font-weight: 700;
+  padding: 11px 18px;
+  border-radius: 12px;
+  border: none;
+}
+
+.btn-secondary {
+  background: white;
+  color: #153f2f;
+  font-weight: 700;
+  padding: 11px 18px;
+  border-radius: 12px;
+  border: 1px solid #ddd;
+}
+
+.btn-danger {
+  background: #b91c1c;
+  color: white;
+  font-weight: 700;
+  padding: 11px 18px;
+  border-radius: 12px;
+  border: none;
+}

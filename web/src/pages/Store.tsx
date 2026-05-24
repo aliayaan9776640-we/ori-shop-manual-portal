@@ -1,3 +1,7 @@
+import ContactUs from "@/pages/ContactUs";
+import PageTransition from "@/components/PageTransition";
+import CustomerProfileDashboard from "@/components/CustomerProfileDashboard";
+import PreOrders from "./PreOrders";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { customerSupabase, supabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -65,11 +69,13 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { LOGO_URL, LOGO_URL_BROTHERS } from "@/components/Logo";
+import FileUpload from "@/components/FileUpload";
 
 interface PublicProduct {
   id: string;
   name: string;
   category: string;
+  size?: string | null;
   /** Base price stored on products. Treated as price per piece below. */
   selling_price: number;
   stock_pieces: number;
@@ -81,6 +87,7 @@ interface PublicProduct {
   is_offer?: boolean | null;
   discount_pct?: number | null;
   offer_label?: string | null;
+  unit_type?: string | null;
 }
 
 type NavFilter =
@@ -90,6 +97,8 @@ type NavFilter =
   | "offers"
   | "new"
   | "brands"
+  | "preorders"
+  | "profile"
   | "contact";
 
 const MVR = (n: number): string =>
@@ -259,6 +268,14 @@ export default function Store() {
   }, [searchParams, setSearchParams, customer]);
 
   useEffect(() => {
+    const view = searchParams.get("view");
+    if (view === "profile" || view === "preorders") {
+      setNavFilter(view);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     if (!isSupabaseConfigured) {
       setProductsLoading(false);
       setProductsError("Supabase is not configured");
@@ -267,7 +284,7 @@ export default function Store() {
     let cancelled = false;
 
     const SELECT_COLS =
-      "id,name,category,selling_price,stock_pieces,photo_url,expiry_date,pieces_per_case,created_at,brand,is_offer,discount_pct,offer_label";
+      "id,name,category,unit_type,size,selling_price,stock_pieces,photo_url,expiry_date,pieces_per_case,created_at,brand,is_offer,discount_pct,offer_label";
 
     const loadProducts = async (): Promise<void> => {
       console.log("STORE LOADED");
@@ -343,6 +360,7 @@ export default function Store() {
       if (cancelled) return;
       if (rows) {
         console.log("Products fetched:", rows);
+        console.log("FIRST PRODUCT UNIT TYPE:", rows?.[0]?.unit_type);
         console.log("Product count:", rows.length);
         setProducts(rows);
         setProductsError(null);
@@ -409,7 +427,8 @@ export default function Store() {
       if (!q) return true;
       return (
         p.name.toLowerCase().includes(q) ||
-        (p.category || "").toLowerCase().includes(q)
+        (p.category || "").toLowerCase().includes(q) ||
+        (p.size || "").toLowerCase().includes(q)
       );
     });
 
@@ -461,10 +480,12 @@ export default function Store() {
       return;
     }
     const ppc = Math.max(1, p.pieces_per_case ?? 1);
-    // products.selling_price is stored as the price per displayed unit (case
-    // when piecesPerCase>1). Per-piece price = selling_price / piecesPerCase.
-    const piecePrice = p.selling_price / ppc;
-    const casePrice = piecePrice * ppc;
+    // IMPORTANT: In Inventory, products with pieces_per_case > 1 store
+    // selling_price as the CASE price. The online store must not multiply
+    // it again. Per-piece price is case price / pieces per case.
+    const rawPrice = Number(p.selling_price || 0);
+    const piecePrice = ppc > 1 ? rawPrice / ppc : rawPrice;
+    const casePrice = ppc > 1 ? rawPrice : rawPrice;
     console.log("[store] price used:", {
       id: p.id,
       name: p.name,
@@ -480,6 +501,7 @@ export default function Store() {
     addToCart({
       productId: p.id,
       productName: p.name,
+      productSize: p.size || "",
       unitPrice: piecePrice,
       available: p.stock_pieces,
       unitType: ppc > 1 ? unitType : "piece",
@@ -711,6 +733,7 @@ export default function Store() {
               onClick={() => {
                 setNavFilter("categories");
                 setCategory("all");
+
                 if (typeof window !== "undefined" && window.innerWidth < 1024) {
                   document
                     .getElementById("top-picks")
@@ -736,23 +759,41 @@ export default function Store() {
               </span>
               All Categories
             </button>
+
             {([
               { key: "home", label: "Home", icon: HomeIcon },
               { key: "shop", label: "Shop", icon: Package },
               { key: "offers", label: "Offers", icon: Tag },
               { key: "new", label: "New Arrivals", icon: Sparkles },
               { key: "brands", label: "Brands", icon: ShieldCheck },
+              { key: "preorders", label: "Pre-Orders", icon: PackageCheck },
+              { key: "profile", label: "My Profile", icon: UserIcon },
               { key: "contact", label: "Contact Us", icon: Phone },
             ] as { key: NavFilter; label: string; icon: typeof HomeIcon }[]).map((n) => {
               const Icon = n.icon;
               const active = navFilter === n.key;
+
               return (
                 <button
                   key={n.key}
                   type="button"
                   onClick={() => {
-                    console.log("[store] nav click:", n.key);
                     setNavFilter(n.key);
+
+                    if (n.key === "profile") {
+                      setNavFilter("profile");
+                      navigate("/store?view=profile", { replace: false });
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                      return;
+                    }
+
+                    if (n.key === "preorders") {
+                      setNavFilter("preorders");
+                      navigate("/store?view=preorders", { replace: false });
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                      return;
+                    }
+
                     if (n.key === "home") {
                       setCategory("all");
                       setSearch("");
@@ -763,17 +804,13 @@ export default function Store() {
                         .getElementById("top-picks")
                         ?.scrollIntoView({ behavior: "smooth" });
                     } else if (n.key === "contact") {
-                      const el = document.getElementById("contact-section");
-                      el?.scrollIntoView({ behavior: "smooth" });
+                      document
+                        .getElementById("contact-section")
+                        ?.scrollIntoView({ behavior: "smooth" });
                     } else if (n.key === "brands") {
                       setCategory("all");
                       document
                         .getElementById("brands-section")
-                        ?.scrollIntoView({ behavior: "smooth" });
-                    } else {
-                      // offers / new
-                      document
-                        .getElementById("top-picks")
                         ?.scrollIntoView({ behavior: "smooth" });
                     }
                   }}
@@ -793,23 +830,9 @@ export default function Store() {
         </div>
       </header>
 
-      {/* ============================ DEBUG BANNER ========================= */}
-      <div className="mx-auto max-w-screen-2xl px-3 pt-3 sm:px-6">
-        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-xs font-mono text-emerald-900">
-          <div><strong>STORE COMPONENT LOADED</strong></div>
-          <div>PRODUCT COUNT: {products.length}</div>
-          <div>
-            STATE:{" "}
-            {productsLoading
-              ? "loading"
-              : productsError
-              ? `error → ${productsError}`
-              : "ok"}
-          </div>
-          <div>CUSTOMER: {customer ? `${customer.name} (${customer.approvalStatus})` : "guest"}</div>
-        </div>
-      </div>
-
+      {navFilter === "contact" && <ContactUs />}
+      {navFilter !== "preorders" && navFilter !== "profile" && navFilter !== "contact" && (
+        <>
       {/* ============================ TOP ADS ============================== */}
       {topAds.length > 0 && (
         <div className="mx-auto max-w-screen-2xl space-y-2 px-3 pt-3 sm:px-6">
@@ -1145,59 +1168,6 @@ export default function Store() {
             </p>
           </div>
 
-          {/* Contact us */}
-          <div id="contact-section" className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 text-base font-bold text-slate-800">Contact Us</div>
-            <div className="space-y-3 text-sm">
-              <a
-                href="mailto:sales@oribrother.com"
-                className="flex items-start gap-2.5"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-100 text-orange-600">
-                  <Mail className="h-4 w-4" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                    Email
-                  </span>
-                  <span className="block truncate text-xs text-slate-700">
-                    sales@oribrother.com
-                  </span>
-                </span>
-              </a>
-              <a
-                href="https://wa.me/9609778840"
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-start gap-2.5"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-                  <MessageCircle className="h-4 w-4" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                    WhatsApp
-                  </span>
-                  <span className="block text-xs text-slate-700">+960 977 8840</span>
-                </span>
-              </a>
-              <a
-                href="viber://chat?number=%2B9609778840"
-                className="flex items-start gap-2.5"
-              >
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-purple-100 text-purple-600">
-                  <Phone className="h-4 w-4" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                    Viber
-                  </span>
-                  <span className="block text-xs text-slate-700">+960 977 8840</span>
-                </span>
-              </a>
-            </div>
-          </div>
-
           {/* Delivery card */}
           <div className="overflow-hidden rounded-xl border border-orange-200 bg-gradient-to-br from-emerald-50 via-white to-orange-50 p-4 shadow-sm">
             <div className="text-xs font-semibold text-orange-500">Fast & Reliable</div>
@@ -1220,6 +1190,24 @@ export default function Store() {
           </div>
         </aside>
       </div>
+
+
+      
+        </>
+      )}
+
+      <PageTransition pageKey={navFilter}>
+        {navFilter === "preorders" && (
+          <section
+            id="preorders-section"
+            className="mx-auto max-w-screen-2xl px-3 py-6 sm:px-6"
+          >
+            <PreOrders />
+          </section>
+        )}
+
+        {navFilter === "profile" && <CustomerProfileDashboard />}
+      </PageTransition>
 
       {/* ============================ TRUST FOOTER ========================= */}
       <section className="border-t border-slate-200 bg-white">
@@ -1307,6 +1295,11 @@ export default function Store() {
                       <div className="truncate text-sm font-medium">
                         {c.productName}
                       </div>
+                      {c.productSize && (
+                        <div className="text-xs text-slate-500">
+                          Size: {c.productSize}
+                        </div>
+                      )}
                       <div className="flex flex-wrap items-center gap-1 text-xs text-slate-500">
                         <span>
                           {MVR(displayUnitPrice)} / {unitLabel}
@@ -1464,7 +1457,7 @@ export default function Store() {
                     {o.items.map((i) => (
                       <div key={i.id} className="flex justify-between">
                         <span>
-                          {i.productName} × {i.qty}
+                          {i.productName}{i.productSize ? ` (${i.productSize})` : ""} x {i.qty}
                         </span>
                         <span className="text-slate-500">{MVR(i.lineTotal)}</span>
                       </div>
@@ -1666,6 +1659,29 @@ function SectionHeader({ title }: { title: string }) {
   );
 }
 
+function productUnitLabel(unitType?: string | null): string {
+  switch ((unitType || "piece").toLowerCase()) {
+    case "kg":
+      return "KG";
+    case "g":
+      return "GRAM";
+    case "box":
+      return "BOX";
+    case "case":
+      return "CASE";
+    case "packet":
+      return "PACKET";
+    case "bottle":
+      return "BOTTLE";
+    case "tin":
+      return "TIN";
+    case "bag":
+      return "BAG";
+    default:
+      return "PIECE";
+  }
+}
+
 function ProductGrid({
   products,
   onAdd,
@@ -1679,12 +1695,21 @@ function ProductGrid({
         const exp = daysUntilExpiry(p.expiry_date);
         const near = exp !== null && exp >= 0 && exp <= 30;
         const stock = p.stock_pieces;
+        const ppc = Math.max(1, p.pieces_per_case ?? 1);
+        // IMPORTANT: In Inventory, products with pieces_per_case > 1 store
+        // selling_price as the CASE price. Do not multiply it again here.
+        const rawPrice = Number(p.selling_price || 0);
+        const unitPrice = ppc > 1 ? rawPrice / ppc : rawPrice;
+        const casePrice = ppc > 1 ? rawPrice : rawPrice;
+        const canCase = ppc > 1 && stock >= ppc;
+        const unitLabel = productUnitLabel(p.unit_type);
         const stockBadge =
           stock <= 0
             ? { label: "Out of stock", cls: "bg-rose-500" }
             : stock <= 5
             ? { label: `Low · ${stock} left`, cls: "bg-amber-500" }
             : { label: "In stock", cls: "bg-emerald-600" };
+
         return (
           <div
             key={p.id}
@@ -1702,6 +1727,7 @@ function ProductGrid({
                   <img src={LOGO_URL} alt="" className="h-16 w-16 opacity-25" />
                 </div>
               )}
+
               <Badge
                 className={cn(
                   "absolute right-2 top-2 text-[10px] text-white shadow-sm hover:opacity-100",
@@ -1710,6 +1736,7 @@ function ProductGrid({
               >
                 {stockBadge.label}
               </Badge>
+
               {near && (
                 <Badge
                   className="absolute left-2 top-2 bg-amber-500 text-[10px] text-white hover:bg-amber-500"
@@ -1720,69 +1747,75 @@ function ProductGrid({
                 </Badge>
               )}
             </div>
+
             <div className="flex flex-1 flex-col gap-1 p-3">
               <div className="line-clamp-2 min-h-[2.4rem] text-sm font-semibold text-slate-800">
                 {p.name}
               </div>
+
               <div className="text-[10px] uppercase tracking-wider text-slate-400">
                 {p.category || "Uncategorised"}
               </div>
-              {(() => {
-                const ppc = Math.max(1, p.pieces_per_case ?? 1);
-                const piecePrice = p.selling_price / ppc;
-                const casePrice = piecePrice * ppc;
-                const canCase = ppc > 1 && stock >= ppc;
-                return (
-                  <div className="mt-auto pt-2">
-                    <div className="flex flex-col gap-0.5">
-                      <div className="flex items-baseline justify-between gap-1">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                          Per piece
-                        </span>
-                        <span className="text-base font-extrabold leading-none text-orange-600">
-                          {MVR(piecePrice)}
-                        </span>
-                      </div>
-                      {ppc > 1 && (
-                        <div className="flex items-baseline justify-between gap-1">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                            Per case ({ppc} pcs)
-                          </span>
-                          <span className="text-sm font-bold leading-none text-emerald-700">
-                            {MVR(casePrice)}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="mt-2 flex gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => onAdd(p, "piece")}
-                        disabled={stock <= 0}
-                        className="h-7 flex-1 border-emerald-200 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
-                      >
-                        + Pc
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => onAdd(p, "case")}
-                        disabled={!canCase}
-                        title={
-                          ppc <= 1
-                            ? "Sold by piece only"
-                            : stock < ppc
-                            ? `Need ${ppc} pcs in stock`
-                            : `Add 1 case (${ppc} pcs)`
-                        }
-                        className="h-7 flex-1 bg-emerald-600 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
-                      >
-                        + Case
-                      </Button>
-                    </div>
+
+              {p.size && (
+                <div className="text-[11px] font-semibold text-emerald-700">
+                  Size: {p.size}
+                </div>
+              )}
+
+              <div className="mt-auto pt-2">
+                <div className="mt-2 space-y-1">
+                  <div className="flex items-baseline justify-between gap-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                      PER {unitLabel}
+                    </span>
+
+                    <span className="text-base font-extrabold leading-none text-orange-600">
+                      {MVR(unitPrice)}
+                    </span>
                   </div>
-                );
-              })()}
+
+                  {ppc > 1 && (
+                    <div className="flex items-baseline justify-between gap-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                        PER CASE ({ppc} PCS)
+                      </span>
+
+                      <span className="text-sm font-bold leading-none text-emerald-700">
+                        {MVR(casePrice)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-2 flex gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => onAdd(p, "piece")}
+                    disabled={stock <= 0}
+                    className="h-7 flex-1 border-emerald-200 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                  >
+                    + {unitLabel}
+                  </Button>
+
+                  <Button
+                    size="sm"
+                    onClick={() => onAdd(p, "case")}
+                    disabled={!canCase}
+                    title={
+                      ppc <= 1
+                        ? "Sold by selected unit only"
+                        : stock < ppc
+                        ? `Need ${ppc} pcs in stock`
+                        : `Add 1 case (${ppc} pcs)`
+                    }
+                    className="h-7 flex-1 bg-emerald-600 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-40"
+                  >
+                    + Case
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         );
@@ -1990,25 +2023,208 @@ function CheckoutDialog({
   cartTotal: number;
   placeOrder: ReturnType<typeof useCustomerStore.getState>["placeOrder"];
 }) {
-  const customer = useCustomerStore((s) => s.customer);
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "credit">(
-    "cash"
-  );
+  const customer = useCustomerStore((st) => st.customer);
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "credit">("cash");
   const [notes, setNotes] = useState("");
   const [address, setAddress] = useState("");
+  const [currentLocationText, setCurrentLocationText] = useState("");
+  const [currentLocationUrl, setCurrentLocationUrl] = useState("");
+  const [currentLatitude, setCurrentLatitude] = useState<number | null>(null);
+  const [currentLongitude, setCurrentLongitude] = useState<number | null>(null);
+  const [detectingLocation, setDetectingLocation] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [paymentSlipUrl, setPaymentSlipUrl] = useState("");
+
+  const [currentIslandDelivery, setCurrentIslandDelivery] = useState(true);
+  const [needBoatDelivery, setNeedBoatDelivery] = useState(false);
+  const [boatName, setBoatName] = useState("");
+  const [boatContact, setBoatContact] = useState("");
+  const [boatLocation, setBoatLocation] = useState("");
+  const [boatDepartureDate, setBoatDepartureDate] = useState("");
+  const [boatDepartureTime, setBoatDepartureTime] = useState("");
+
+  const [creditAvailable, setCreditAvailable] = useState(0);
+  const [creditAllowed, setCreditAllowed] = useState(false);
+  const [creditMessage, setCreditMessage] = useState("Credit available only for approved credit customers");
+
+  const [bank, setBank] = useState({
+    bankName: "BML / Bank Transfer",
+    accountName: "Ori Barakah Store",
+    accountNumber: "",
+    note: "Upload the transfer slip after payment.",
+  });
 
   useEffect(() => {
-    if (open && customer) setAddress(customer.address || "");
+    if (open && customer) {
+      setAddress(customer.address || "");
+      setPaymentMethod("cash");
+      setPaymentSlipUrl("");
+      setCurrentLocationText("");
+      setCurrentLocationUrl("");
+      setCurrentLatitude(null);
+      setCurrentLongitude(null);
+      setCurrentIslandDelivery(true);
+      setNeedBoatDelivery(false);
+    }
   }, [open, customer]);
 
+  useEffect(() => {
+    if (!open) return;
+    void customerSupabase
+      .from("app_settings")
+      .select("online_bank_name,online_account_name,online_account_number,online_payment_note")
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        const row = data as any;
+        if (row) {
+          setBank({
+            bankName: row.online_bank_name || "BML / Bank Transfer",
+            accountName: row.online_account_name || "Ori Barakah Store",
+            accountNumber: row.online_account_number || "",
+            note: row.online_payment_note || "Upload the transfer slip after payment.",
+          });
+        }
+      });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !customer?.name || !customer?.phone) return;
+    setCreditAllowed(false);
+    setCreditAvailable(0);
+    void customerSupabase
+      .rpc("match_approved_credit_customer", {
+        p_name: customer.name,
+        p_phone: customer.phone,
+      })
+      .then(({ data, error }) => {
+        if (error) {
+          setCreditMessage("Credit checking not configured. Ask admin to run the latest SQL.");
+          return;
+        }
+        const row = Array.isArray(data) ? data[0] : null;
+        if (!row?.id) {
+          setCreditMessage("Credit not available: your name and phone do not match an approved credit customer.");
+          return;
+        }
+        const limit = Number(row.credit_limit || 0);
+        const balance = Number(row.balance || 0);
+        const available = Math.max(0, limit - balance);
+        setCreditAvailable(available);
+        setCreditAllowed(available >= cartTotal && cartTotal > 0);
+        setCreditMessage(
+          available >= cartTotal
+            ? `Available credit: MVR ${available.toFixed(2)}`
+            : `Credit limit not enough. Available MVR ${available.toFixed(2)}`
+        );
+      });
+  }, [open, customer?.name, customer?.phone, cartTotal]);
+
+  const detectCurrentLocation = (): void => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      toast.error("Location tracking is not supported on this device/browser.");
+      return;
+    }
+
+    setDetectingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const text = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+        const url = `https://www.google.com/maps?q=${lat},${lng}`;
+        setCurrentLatitude(lat);
+        setCurrentLongitude(lng);
+        setCurrentLocationText(text);
+        setCurrentLocationUrl(url);
+        setDetectingLocation(false);
+        toast.success("Current location captured.");
+      },
+      () => {
+        setDetectingLocation(false);
+        toast.error("Location permission denied. You can still type the delivery address manually.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+    );
+  };
+
+  const bankSlipMissing = paymentMethod === "bank" && !paymentSlipUrl;
+  const boatDetailsMissing =
+    needBoatDelivery &&
+    (!boatName.trim() || !boatContact.trim() || !boatLocation.trim());
+
+  const requestLocationForOrder = (): Promise<boolean> => {
+    if (currentLatitude && currentLongitude && currentLocationUrl) return Promise.resolve(true);
+
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      toast.error("Location service is not supported on this device/browser. Please type your delivery address clearly.");
+      return Promise.resolve(false);
+    }
+
+    setDetectingLocation(true);
+    toast.message("Please allow location service before placing the order.");
+
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const text = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+          const url = `https://www.google.com/maps?q=${lat},${lng}`;
+          setCurrentLatitude(lat);
+          setCurrentLongitude(lng);
+          setCurrentLocationText(text);
+          setCurrentLocationUrl(url);
+          setDetectingLocation(false);
+          toast.success("Location captured. You can now place the order.");
+          resolve(true);
+        },
+        (err) => {
+          setDetectingLocation(false);
+          toast.error(err.message || "Location permission denied. Please turn on location service and try again.");
+          resolve(false);
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+      );
+    });
+  };
+
   const submit = async (): Promise<void> => {
+    const locationAllowed = await requestLocationForOrder();
+    if (!locationAllowed) {
+      return;
+    }
+
+    if (bankSlipMissing) {
+      toast.error("Please upload payment slip before submitting bank transfer order.");
+      return;
+    }
+    if (boatDetailsMissing) {
+      toast.error("Please complete boat delivery details before submitting.");
+      return;
+    }
+    if (paymentMethod === "credit" && !creditAllowed) {
+      toast.error("Credit can only be used by approved matching credit customers.");
+      return;
+    }
     setBusy(true);
     try {
       const r = await placeOrder({
         paymentMethod,
         notes: notes || undefined,
         deliveryAddress: address || undefined,
+        currentLocationText: currentLocationText || undefined,
+        currentLocationUrl: currentLocationUrl || undefined,
+        currentLatitude,
+        currentLongitude,
+        currentIslandDelivery,
+        needBoatDelivery,
+        boatName,
+        boatContact,
+        boatLocation,
+        boatDepartureDate,
+        boatDepartureTime,
+        paymentSlipUrl,
       });
       if (!r.ok) {
         toast.error(r.error ?? "Order failed");
@@ -2021,72 +2237,174 @@ function CheckoutDialog({
     }
   };
 
-  const creditAvailable = customer?.isCreditApproved
-    ? Math.max(0, customer.creditLimit - customer.creditBalance)
-    : 0;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto border-0 bg-gradient-to-br from-slate-950 via-emerald-950 to-slate-900 text-white shadow-2xl">
         <DialogHeader>
-          <DialogTitle className="text-emerald-800">Checkout</DialogTitle>
-          <DialogDescription>
-            Confirm delivery address and payment.
+          <DialogTitle className="text-2xl font-extrabold text-white">Checkout</DialogTitle>
+          <DialogDescription className="text-emerald-100">
+            Confirm delivery, payment and boat delivery details if needed.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3">
-          <div>
+
+        <div className="space-y-4">
+          <div className="rounded-2xl bg-white/95 p-4 text-slate-900 shadow-sm">
             <Label>Delivery address</Label>
-            <Textarea
-              rows={2}
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-            />
+            <Textarea rows={2} value={address} onChange={(e) => setAddress(e.target.value)} />
           </div>
-          <div>
+
+          <div className="rounded-2xl bg-white/95 p-4 text-slate-900 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex-1">
+                <Label>Customer current location</Label>
+                <Input
+                  value={currentLocationText}
+                  onChange={(e) => setCurrentLocationText(e.target.value)}
+                  placeholder="Use Detect Location or type location/landmark"
+                />
+                {currentLocationUrl && (
+                  <a
+                    href={currentLocationUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 block text-xs font-semibold text-emerald-700 hover:underline"
+                  >
+                    Open captured location in Google Maps
+                  </a>
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={detectingLocation}
+                onClick={detectCurrentLocation}
+                className="shrink-0"
+              >
+                {detectingLocation ? "Detecting…" : "Detect location"}
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              Customer can allow browser location. If permission is denied, typed delivery address still works.
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-white/95 p-4 text-slate-900 shadow-sm">
             <Label>Payment method</Label>
             <Select
               value={paymentMethod}
-              onValueChange={(v) =>
-                setPaymentMethod(v as "cash" | "bank" | "credit")
-              }
+              onValueChange={(v) => {
+                if (v === "credit" && !creditAllowed) {
+                  toast.error("Credit can only be selected by approved matching credit customers.");
+                  return;
+                }
+                setPaymentMethod(v as "cash" | "bank" | "credit");
+              }}
             >
-              <SelectTrigger>
+              <SelectTrigger className="mt-1">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="cash">Cash on delivery</SelectItem>
                 <SelectItem value="bank">Bank transfer</SelectItem>
-                <SelectItem value="credit" disabled={!customer?.isCreditApproved}>
-                  Credit{" "}
-                  {customer?.isCreditApproved
-                    ? `(MVR ${creditAvailable.toFixed(2)} available)`
-                    : "(not approved)"}
+                <SelectItem value="credit" disabled={!creditAllowed}>
+                  Credit {creditAllowed ? `(Available: MVR ${creditAvailable.toFixed(2)})` : "(not available)"}
                 </SelectItem>
               </SelectContent>
             </Select>
+            <div className={cn("mt-2 rounded-xl px-3 py-2 text-xs", creditAllowed ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700")}>
+              {creditMessage}
+            </div>
           </div>
-          <div>
+
+          {paymentMethod === "bank" && (
+            <div className="overflow-hidden rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 via-white to-blue-50 p-4 text-slate-900 shadow-sm">
+              <div className="mb-3 rounded-xl bg-gradient-to-r from-red-600 to-blue-700 px-4 py-3 text-white">
+                <div className="text-xs font-semibold uppercase tracking-wider text-white/80">Bank Transfer</div>
+                <div className="text-lg font-extrabold">{bank.bankName}</div>
+              </div>
+              <div className="grid gap-2 text-sm sm:grid-cols-2">
+                <div><b>Account Name:</b> {bank.accountName || "-"}</div>
+                <div><b>Account No:</b> {bank.accountNumber || "-"}</div>
+              </div>
+              <p className="mt-2 text-xs text-slate-600">{bank.note}</p>
+              <div className="mt-3">
+                <Label>Upload payment slip</Label>
+                <FileUpload
+                  value={paymentSlipUrl}
+                  onChange={(url) => setPaymentSlipUrl(url || "")}
+                  folder="online-payment-slips"
+                />
+                {bankSlipMissing && (
+                  <div className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+                    Payment slip is required before placing a bank transfer order.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-2xl bg-white/95 p-4 text-slate-900 shadow-sm">
+            <label className="flex items-center gap-2 text-sm font-semibold">
+              <input
+                type="checkbox"
+                checked={currentIslandDelivery}
+                onChange={(e) => {
+                  setCurrentIslandDelivery(e.target.checked);
+                  if (e.target.checked) setNeedBoatDelivery(false);
+                }}
+              />
+              Current island delivery / no boat needed
+            </label>
+            <label className="mt-3 flex items-center gap-2 text-sm font-semibold">
+              <input
+                type="checkbox"
+                checked={needBoatDelivery}
+                onChange={(e) => {
+                  setNeedBoatDelivery(e.target.checked);
+                  if (e.target.checked) setCurrentIslandDelivery(false);
+                }}
+              />
+              Need boat delivery
+            </label>
+
+            {needBoatDelivery && (
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div><Label>Boat name</Label><Input value={boatName} onChange={(e) => setBoatName(e.target.value)} /></div>
+                <div><Label>Boat contact number</Label><Input value={boatContact} onChange={(e) => setBoatContact(e.target.value)} /></div>
+                <div><Label>Boat location</Label><Input value={boatLocation} onChange={(e) => setBoatLocation(e.target.value)} /></div>
+                <div><Label>Departure date</Label><Input type="date" value={boatDepartureDate} onChange={(e) => setBoatDepartureDate(e.target.value)} /></div>
+                <div><Label>Departure time</Label><Input type="time" value={boatDepartureTime} onChange={(e) => setBoatDepartureTime(e.target.value)} /></div>
+                {boatDetailsMissing && (
+                  <div className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 sm:col-span-2">
+                    Boat name, contact number and location are required when boat delivery is selected.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl bg-white/95 p-4 text-slate-900 shadow-sm">
             <Label>Notes (optional)</Label>
-            <Textarea
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Landmark, gate code, etc."
-            />
+            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Landmark, gate code, delivery note, etc." />
           </div>
-          <div className="flex items-center justify-between rounded-lg bg-gradient-to-r from-emerald-700 to-orange-500 px-4 py-3 text-white">
-            <span className="text-sm">Order total</span>
-            <span className="text-lg font-extrabold">{MVR(cartTotal)}</span>
+
+          <div className="flex items-center justify-between rounded-2xl bg-gradient-to-r from-orange-500 to-emerald-600 px-4 py-4 text-white">
+            <span className="text-sm font-semibold">Order total</span>
+            <span className="text-xl font-extrabold">{MVR(cartTotal)}</span>
           </div>
         </div>
+
         <DialogFooter>
           <Button
-            disabled={busy || cartTotal <= 0}
+            disabled={busy || cartTotal <= 0 || bankSlipMissing || boatDetailsMissing}
             onClick={() => void submit()}
-            className="bg-orange-500 text-white hover:bg-orange-600"
+            className="bg-orange-500 text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Place order
+            {bankSlipMissing
+              ? "Upload slip first"
+              : boatDetailsMissing
+                ? "Complete boat details"
+                : "Place order"}
           </Button>
         </DialogFooter>
       </DialogContent>

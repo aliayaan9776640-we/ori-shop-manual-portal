@@ -15,7 +15,16 @@ export interface User {
   isPurchasingStaff?: boolean;
 }
 
-export type UnitType = "piece" | "kg" | "tin" | "box" | "case";
+export type UnitType =
+  | "piece"
+  | "kg"
+  | "g"
+  | "tin"
+  | "box"
+  | "case"
+  | "bag"
+  | "packet"
+  | "bottle";
 
 export interface Supplier {
   id: string;
@@ -122,7 +131,12 @@ export interface DamagedItem {
   barcode?: string;
 }
 
-export type OrderStatus = "pending" | "loaded" | "received" | "partial" | "cancelled";
+export type OrderStatus =
+  | "pending"
+  | "loaded"
+  | "received"
+  | "partial"
+  | "cancelled";
 
 export interface OrderItem {
   productId: string;
@@ -204,10 +218,10 @@ export interface StockBatch {
   id: string;
   productId: string;
   batchNo?: string;
-  qtyPieces: number;       // original qty added
+  qtyPieces: number; // original qty added
   remainingPieces: number; // current remaining
-  purchaseDate: string;    // ISO date
-  expiryDate?: string;     // ISO date (optional)
+  purchaseDate: string; // ISO date
+  expiryDate?: string; // ISO date (optional)
   userId?: string;
   /** Person who physically bought / arranged the goods (separate from entered-by). */
   buyingPersonId?: string;

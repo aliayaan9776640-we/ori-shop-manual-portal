@@ -45,6 +45,13 @@ const blank: FormState = {
   isPurchasingStaff: false,
 };
 
+const MASTER_ADMIN_EMAIL = String(import.meta.env.VITE_MASTER_ADMIN_EMAIL || "")
+  .trim()
+  .toLowerCase();
+
+const isMasterAdminEmail = (email: string): boolean =>
+  !!MASTER_ADMIN_EMAIL && email.trim().toLowerCase() === MASTER_ADMIN_EMAIL;
+
 export default function Users() {
   const users = useStore((s) => s.users);
   const addUser = useStore((s) => s.addUser);
@@ -68,12 +75,13 @@ export default function Users() {
       return;
     }
     if (editing) {
+      const master = editing ? isMasterAdminEmail(editing.email) : false;
       const patch: Partial<User> = {
         email: form.email,
         username: form.email,
         fullName: form.fullName,
-        role: form.role,
-        active: form.active,
+        role: master ? "admin" : form.role,
+        active: master ? true : form.active,
         isPurchasingStaff: form.isPurchasingStaff,
       };
       updateUser(editing.id, patch);
@@ -148,6 +156,7 @@ export default function Users() {
             <tbody>
               {users.map((u) => {
                 const Icon = roleIcon[u.role];
+                const master = isMasterAdminEmail(u.email);
                 return (
                   <tr key={u.id} className="border-t border-border">
                     <td className="px-4 py-3">
@@ -186,8 +195,11 @@ export default function Users() {
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-1">
                         <button
-                          onClick={() => updateUser(u.id, { active: !u.active })}
-                          disabled={u.id === me?.id}
+                          onClick={() => {
+                            if (master) return toast.error("Master admin cannot be deactivated");
+                            updateUser(u.id, { active: !u.active });
+                          }}
+                          disabled={u.id === me?.id || master}
                           className="rounded-md px-2 py-1 text-xs hover:bg-secondary disabled:opacity-50"
                         >
                           {u.active ? "Deactivate" : "Activate"}
@@ -243,8 +255,8 @@ export default function Users() {
                               email: u.email,
                               password: "",
                               fullName: u.fullName,
-                              role: u.role,
-                              active: u.active,
+                              role: master ? "admin" : u.role,
+                              active: master ? true : u.active,
                               isPurchasingStaff: !!u.isPurchasingStaff,
                             });
                             setOpen(true);
@@ -256,12 +268,13 @@ export default function Users() {
                         <button
                           onClick={() => {
                             if (u.id === me?.id) return toast.error("Cannot delete yourself");
+                            if (master) return toast.error("Master admin cannot be deleted");
                             if (confirm(`Delete ${u.fullName}?`)) {
                               deleteUser(u.id);
                               toast.success("Deleted");
                             }
                           }}
-                          disabled={u.id === me?.id}
+                          disabled={u.id === me?.id || master}
                           className="rounded-md p-1.5 text-destructive hover:bg-destructive/10 disabled:opacity-50"
                         >
                           <Trash2 className="h-4 w-4" />
