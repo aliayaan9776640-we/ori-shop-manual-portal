@@ -7,6 +7,7 @@ type AdminSection =
   | "reports"
   | "products"
   | "upload"
+  | "quotations"
   | "approval"
   | "delivery"
   | "settings";
@@ -39,6 +40,24 @@ const money = (value: number) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+
+
+const tailoringPresets: Record<string, string> = {
+  "T-Shirt": "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Shirt Length (inch),Neck Size (inch)",
+  Shirt: "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Shirt Length (inch),Neck Size (inch)",
+  Trouser: "Waist (inch),Hip (inch),Thigh (inch),Pant Length (inch),Bottom (inch)",
+  Pants: "Waist (inch),Hip (inch),Thigh (inch),Pant Length (inch),Bottom (inch)",
+  "Tailor Suit": "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Coat Length (inch),Neck Size (inch),Waist (inch),Hip (inch),Thigh (inch),Pant Length (inch),Bottom (inch),Vest Length (inch)",
+  Abaya: "Bust (inch),Waist (inch),Hip (inch),Shoulder Width (inch),Sleeve Length (inch),Dress Length (inch),Arm Round (inch)",
+  Dress: "Bust (inch),Waist (inch),Hip (inch),Shoulder Width (inch),Sleeve Length (inch),Dress Length (inch),Arm Round (inch)",
+  Custom: "",
+};
+
+const parseList = (value?: string | null): string[] =>
+  String(value || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
 const badgeClass = (status: string) => {
   switch (status) {
@@ -84,7 +103,17 @@ export default function PreorderAdmin() {
     unit_type: "piece",
     minimum_qty: "1",
     sizes: "",
-    category: "",
+    item_type: "normal",
+    category: "Normal",
+    garment_type: "",
+    sub_category: "",
+    fabric: "",
+    colors: "",
+    measurement_fields: "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Coat Length (inch),Neck Size (inch),Waist (inch)",
+    allow_custom_measurements: true,
+    allow_reference_images: true,
+    allow_quotation: true,
+    quotation_note: "",
   });
 
   const load = async () => {
@@ -201,7 +230,17 @@ export default function PreorderAdmin() {
       unit_type: form.unit_type || "piece",
       minimum_qty: Math.max(1, Number(form.minimum_qty || 1)),
       sizes: form.sizes.trim(),
+      item_type: form.item_type || "normal",
       category: form.category.trim() || null,
+      garment_type: form.garment_type.trim() || null,
+      sub_category: form.sub_category.trim() || null,
+      fabric: form.fabric.trim() || null,
+      colors: form.colors.trim() || null,
+      measurement_fields: parseList(form.measurement_fields),
+      allow_custom_measurements: form.allow_custom_measurements,
+      allow_reference_images: form.allow_reference_images,
+      allow_quotation: form.allow_quotation,
+      quotation_note: form.quotation_note.trim() || null,
       active: true,
     });
 
@@ -217,7 +256,17 @@ export default function PreorderAdmin() {
       unit_type: "piece",
       minimum_qty: "1",
       sizes: "",
-      category: "",
+      item_type: "normal",
+      category: "Normal",
+      garment_type: "",
+      sub_category: "",
+      fabric: "",
+      colors: "",
+      measurement_fields: "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Coat Length (inch),Neck Size (inch),Waist (inch)",
+      allow_custom_measurements: true,
+      allow_reference_images: true,
+      allow_quotation: true,
+      quotation_note: "",
     });
     await load();
   };
@@ -238,6 +287,31 @@ export default function PreorderAdmin() {
   const updateOrder = async (id: string, patch: any) => {
     const { error } = await supabase.from("preorder_orders").update(patch).eq("id", id);
     if (error) return alert(error.message);
+    await load();
+  };
+
+  const sendQuotation = async (id: string, price: string | number, note: string) => {
+    const amount = Number(price || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      alert("Please enter a valid quotation price.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("preorder_orders")
+      .update({
+        agreed_price: amount,
+        quotation_price: amount,
+        quotation_note: note || null,
+        quotation_status: "sent",
+        order_status: "quotation_sent",
+        payment_status: "quotation_sent",
+        quoted_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    if (error) return alert(error.message);
+    alert("Quotation sent to customer.");
     await load();
   };
 
@@ -263,6 +337,11 @@ export default function PreorderAdmin() {
       "Item",
       "Qty",
       "Size",
+      "Color / Option",
+      "Submitted Details",
+      "Reference Image",
+      "Quotation Status",
+      "Quotation Price",
       "Total",
       "Payment Method",
       "Payment",
@@ -282,6 +361,11 @@ export default function PreorderAdmin() {
         p?.name || "Pre-order item",
         o.qty || "",
         o.selected_size || "",
+        o.selected_color || "",
+        Object.entries(o.measurement_data || {}).map(([k, v]) => `${k}: ${v}`).join(" | "),
+        o.reference_image_url || "",
+        o.quotation_status || "",
+        o.quotation_price || "",
         o.agreed_price || "",
         o.payment_method || "",
         o.payment_status || "",
@@ -370,6 +454,7 @@ export default function PreorderAdmin() {
     { key: "reports", label: "Reports", sub: "Export and filter" },
     { key: "products", label: "Pre-Order Products", sub: "View and manage" },
     { key: "upload", label: "Upload Pre-Order Items", sub: "Add new item" },
+    { key: "quotations", label: "Quotation Requests", sub: "Review and send price" },
     { key: "approval", label: "Order Approval", sub: "Payment and order approval" },
     { key: "delivery", label: "Delivery Updates", sub: "Status, dates and notes" },
     { key: "settings", label: "Settings", sub: "Payment and banner" },
@@ -455,6 +540,8 @@ export default function PreorderAdmin() {
                     <option value="ready">Ready</option>
                     <option value="delivering">Delivering</option>
                     <option value="delivered">Delivered</option>
+                    <option value="quotation_pending">Quotation Pending</option>
+                    <option value="quotation_sent">Quotation Sent</option>
                     <option value="rejected">Rejected</option>
                   </select>
 
@@ -496,6 +583,14 @@ export default function PreorderAdmin() {
                           <div className="text-xs text-slate-500">
                             Min Qty: {p.minimum_qty || 1} · Unit: {p.unit_type || "piece"} · Sizes: {p.sizes || "-"}
                           </div>
+                          {(p.garment_type || p.fabric || p.colors || p.allow_quotation) && (
+                            <div className="rounded-xl bg-purple-50 p-3 text-xs text-purple-900">
+                              <div><b>Garment:</b> {p.garment_type || "-"}</div>
+                              <div><b>Fabric:</b> {p.fabric || "-"}</div>
+                              <div><b>Colors:</b> {p.colors || "-"}</div>
+                              <div><b>Quotation:</b> {p.allow_quotation ? "Allowed" : "No"}</div>
+                            </div>
+                          )}
                           <div className="flex gap-2 pt-2">
                             <button className={btnSecondary} onClick={() => toggleProduct(p.id, !p.active)}>
                               {p.active ? "Disable" : "Enable"}
@@ -514,23 +609,144 @@ export default function PreorderAdmin() {
 
             {activeSection === "upload" && (
               <Section title="Upload Pre-Order Items">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <input className={input} placeholder="Item Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                  <input className={input} placeholder="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-                  <input className={input} placeholder="Sizes/options: S,M,L or 1kg,5kg" value={form.sizes} onChange={(e) => setForm({ ...form, sizes: e.target.value })} />
+                  <select
+                    className={input}
+                    value={form.item_type}
+                    onChange={(e) => {
+                      const itemType = e.target.value;
+                      setForm({
+                        ...form,
+                        item_type: itemType,
+                        category:
+                          itemType === "garment" ? "Garments" :
+                          itemType === "food" ? "Food" :
+                          itemType === "vehicle" ? "Vehicle" :
+                          itemType === "electric" ? "Electronics" : "Normal",
+                        allow_reference_images: itemType !== "normal",
+                        allow_quotation: itemType !== "normal",
+                        measurement_fields:
+                          itemType === "food" ? "Preferred Brand,Packing Size,Quantity Needed,Expiry Preference,Flavor / Type,Special Note" :
+                          itemType === "vehicle" ? "Vehicle Brand,Vehicle Model,Year,Chassis Number,Part Number,Part Name,Engine / Size,Side / Position" :
+                          itemType === "electric" ? "Brand,Model Number,Voltage,Watts,Plug Type,Color,Specification" : form.measurement_fields,
+                      });
+                    }}
+                  >
+                    <option value="normal">Normal Item</option>
+                    <option value="garment">Garment / Tailoring</option>
+                    <option value="food">Food Item</option>
+                    <option value="vehicle">Vehicle / Spare Part</option>
+                    <option value="electric">Electric / Electronic</option>
+                  </select>
+                  <select className={input} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                    <option value="Normal">Normal</option>
+                    <option value="Garments">Garments</option>
+                    <option value="Food">Food</option>
+                    <option value="Vehicle">Vehicle</option>
+                    <option value="Electronics">Electronics</option>
+                  </select>
+
+                  {form.item_type === "garment" && (
+                    <select
+                      className={input}
+                      value={form.garment_type}
+                      onChange={(e) => {
+                        const garmentType = e.target.value;
+                        setForm({
+                          ...form,
+                          garment_type: garmentType,
+                          measurement_fields: tailoringPresets[garmentType] ?? form.measurement_fields,
+                        });
+                      }}
+                    >
+                      <option value="">Garment Type</option>
+                      <option value="T-Shirt">T-Shirt</option>
+                      <option value="Shirt">Shirt</option>
+                      <option value="Tailor Suit">Tailor Suit</option>
+                      <option value="Trouser">Trouser</option>
+                      <option value="Pants">Pants</option>
+                      <option value="Abaya">Abaya</option>
+                      <option value="Dress">Dress</option>
+                      <option value="Custom">Custom</option>
+                    </select>
+                  )}
+
+                  <input className={input} placeholder="Sub Category e.g. 3-Piece Coat + Pant + Vest" value={form.sub_category} onChange={(e) => setForm({ ...form, sub_category: e.target.value })} />
+                  <input className={input} placeholder="Fabric e.g. Imported Wool, Cotton" value={form.fabric} onChange={(e) => setForm({ ...form, fabric: e.target.value })} />
+                  <input className={input} placeholder="Colors: Black,Navy Blue,Dark Grey" value={form.colors} onChange={(e) => setForm({ ...form, colors: e.target.value })} />
+
+                  <input className={input} placeholder="Sizes/options: XS,S,M,L,XL,XXL,3XL,4XL,Custom" value={form.sizes} onChange={(e) => setForm({ ...form, sizes: e.target.value })} />
                   <input className={input} placeholder="Price" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
                   <input className={input} type="date" value={form.estimated_delivery_date} onChange={(e) => setForm({ ...form, estimated_delivery_date: e.target.value })} />
-                  <input className={input} placeholder="Unit type: piece, case, kg, liter" value={form.unit_type} onChange={(e) => setForm({ ...form, unit_type: e.target.value })} />
+
+                  <input className={input} placeholder="Unit type: piece, set, suit, kg" value={form.unit_type} onChange={(e) => setForm({ ...form, unit_type: e.target.value })} />
                   <input className={input} type="number" min={1} placeholder="Minimum quantity" value={form.minimum_qty} onChange={(e) => setForm({ ...form, minimum_qty: e.target.value })} />
-                  <div className="md:col-span-2">
+                  <input className={input} placeholder="Quotation admin note e.g. Customer can request best price" value={form.quotation_note} onChange={(e) => setForm({ ...form, quotation_note: e.target.value })} />
+
+                  <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4 md:col-span-3">
+                    <h3 className="mb-3 text-sm font-extrabold text-purple-900">
+                      Tailoring Measurement Fields
+                    </h3>
+                    <p className="mb-3 text-xs text-purple-700">
+                      Customer will see these fields. Separate each field with comma.
+                    </p>
+                    <textarea
+                      className={input + " min-h-24"}
+                      placeholder="Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Coat Length (inch),Neck Size (inch),Waist (inch)"
+                      value={form.measurement_fields}
+                      onChange={(e) => setForm({ ...form, measurement_fields: e.target.value })}
+                    />
+                    <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={form.allow_custom_measurements} onChange={(e) => setForm({ ...form, allow_custom_measurements: e.target.checked })} />
+                        Use Custom Measurements
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={form.allow_reference_images} onChange={(e) => setForm({ ...form, allow_reference_images: e.target.checked })} />
+                        Allow Reference Image Upload
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={form.allow_quotation} onChange={(e) => setForm({ ...form, allow_quotation: e.target.checked })} />
+                        Allow Quotation Request
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="md:col-span-3">
                     <FileUpload value={form.photo_url} onChange={(v) => setForm({ ...form, photo_url: v })} folder="preorder-products" />
                   </div>
-                  <textarea className={input + " min-h-24 md:col-span-2"} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                  <textarea className={input + " min-h-24 md:col-span-3"} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
                 </div>
 
                 <button className={btnPrimary + " mt-4"} onClick={submitItem}>
                   Save Pre-Order Item
                 </button>
+              </Section>
+            )}
+
+            {activeSection === "quotations" && (
+              <Section title="Quotation Requests">
+                {orders.filter((o) => o.request_type === "quotation" || o.quotation_status).length === 0 ? (
+                  <Empty text="No quotation requests found." />
+                ) : (
+                  <div className="grid gap-4">
+                    {orders
+                      .filter((o) => o.request_type === "quotation" || o.quotation_status)
+                      .map((order) => {
+                        const product = productMap[order.preorder_product_id];
+                        return (
+                          <QuotationCard
+                            key={order.id}
+                            order={order}
+                            product={product}
+                            onSend={(price, note) => void sendQuotation(order.id, price, note)}
+                            onDelete={() => void deleteOrder(order.id)}
+                          />
+                        );
+                      })}
+                  </div>
+                )}
               </Section>
             )}
 
@@ -758,6 +974,31 @@ function OrderCard({ order, product, children }: { order: any; product: any; chi
             </div>
           )}
 
+          {(order.selected_color || order.measurement_data || order.reference_image_url || order.quotation_status) && (
+            <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+              {order.selected_color && <Info label="Color" value={order.selected_color} />}
+              {order.quotation_status && <Info label="Quotation" value={order.quotation_status} />}
+              {order.reference_image_url && (
+                <a href={order.reference_image_url} target="_blank" rel="noreferrer" className="rounded-xl bg-purple-50 p-3 font-bold text-purple-700 hover:underline">
+                  View Reference Image
+                </a>
+              )}
+              {order.measurement_data && (
+                <div className="rounded-xl bg-purple-50 p-3 md:col-span-2">
+                  <div className="mb-2 font-bold text-purple-900">Measurements</div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {Object.entries(order.measurement_data || {}).map(([key, value]) => (
+                      <div key={key} className="rounded-lg bg-white px-3 py-2">
+                        <span className="text-xs text-slate-500">{key}</span>
+                        <div className="font-bold">{String(value || "-")}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {children}
         </div>
       </div>
@@ -786,6 +1027,101 @@ function Empty({ text }: { text: string }) {
   return (
     <div className="rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">
       {text}
+    </div>
+  );
+}
+
+
+function QuotationCard({
+  order,
+  product,
+  onSend,
+  onDelete,
+}: {
+  order: any;
+  product: any;
+  onSend: (price: string, note: string) => void;
+  onDelete: () => void;
+}) {
+  const [price, setPrice] = useState(String(order.quotation_price || order.agreed_price || ""));
+  const [note, setNote] = useState(order.quotation_note || "");
+
+  return (
+    <div className="rounded-2xl border bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <div className="h-28 w-28 overflow-hidden rounded-xl bg-slate-100">
+          {product?.photo_url ? (
+            <img src={product.photo_url} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center text-xs text-slate-400">No Image</div>
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-extrabold text-[#153f2f]">
+                {product?.name || "Pre-order item"}
+              </h3>
+              <p className="text-sm text-slate-500">
+                {order.customer_name} · {order.customer_phone} · {order.customer_island}
+              </p>
+              <p className="text-xs text-slate-500">
+                Size: {order.selected_size || "-"} · Color: {order.selected_color || "-"} · Qty: {order.qty || 1}
+              </p>
+            </div>
+            <Badge status={order.quotation_status || "pending"} />
+          </div>
+
+          {order.customer_note && (
+            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm">
+              <b>Customer note:</b> {order.customer_note}
+            </div>
+          )}
+
+          {order.measurement_data && (
+            <div className="mt-3 rounded-xl bg-purple-50 p-3 text-sm">
+              <div className="mb-2 font-bold text-purple-900">Customer Measurements</div>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {Object.entries(order.measurement_data || {}).map(([key, value]) => (
+                  <div key={key} className="rounded-lg bg-white px-3 py-2">
+                    <span className="text-xs text-slate-500">{key}</span>
+                    <div className="font-bold">{String(value || "-")}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {order.reference_image_url && (
+            <a href={order.reference_image_url} target="_blank" rel="noreferrer" className="mt-3 inline-block rounded-xl bg-purple-100 px-4 py-2 text-sm font-bold text-purple-700 hover:underline">
+              View Customer Reference Image
+            </a>
+          )}
+
+          <div className="mt-4 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_auto_auto]">
+            <input
+              className={input}
+              type="number"
+              placeholder="Quotation price"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+            />
+            <input
+              className={input}
+              placeholder="Quotation note for customer"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <button className={btnPrimary} onClick={() => onSend(price, note)}>
+              Send Quotation
+            </button>
+            <button className={btnDanger} onClick={onDelete}>
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
