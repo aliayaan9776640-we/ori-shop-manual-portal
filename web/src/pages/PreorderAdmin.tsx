@@ -59,6 +59,18 @@ const parseList = (value?: string | null): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+const commonSizeOptions = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL", "Custom"];
+
+const toggleCsvValue = (current: string, value: string): string => {
+  const items = parseList(current);
+  const exists = items.some((item) => item.toLowerCase() === value.toLowerCase());
+  const next = exists ? items.filter((item) => item.toLowerCase() !== value.toLowerCase()) : [...items, value];
+  return next.join(",");
+};
+
+const cleanGallery = (urls: string[]): string[] =>
+  urls.map((u) => String(u || "").trim()).filter(Boolean).slice(0, 5);
+
 const badgeClass = (status: string) => {
   switch (status) {
     case "approved":
@@ -80,6 +92,7 @@ const badgeClass = (status: string) => {
 
 export default function PreorderAdmin() {
   const [activeSection, setActiveSection] = useState<AdminSection>("overview");
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [settings, setSettings] = useState({
@@ -98,6 +111,10 @@ export default function PreorderAdmin() {
     name: "",
     description: "",
     photo_url: "",
+    gallery_urls: ["", "", "", "", ""] as string[],
+    product_details: "",
+    specifications: "",
+    usage_info: "",
     estimated_delivery_date: "",
     price: "",
     unit_type: "piece",
@@ -217,14 +234,57 @@ export default function PreorderAdmin() {
     await load();
   };
 
+  const startEditProduct = (p: any) => {
+    const rawGallery = Array.isArray(p.gallery_urls) ? p.gallery_urls : [];
+    const galleryUrls = cleanGallery(rawGallery);
+    const paddedGallery = [...galleryUrls, "", "", "", "", ""].slice(0, 5);
+
+    setEditingProductId(p.id);
+    setForm({
+      name: p.name || "",
+      description: p.description || "",
+      photo_url: p.photo_url || galleryUrls[0] || "",
+      gallery_urls: paddedGallery,
+      product_details: p.product_details || "",
+      specifications: p.specifications || "",
+      usage_info: p.usage_info || "",
+      estimated_delivery_date: p.estimated_delivery_date || "",
+      price: String(p.price || ""),
+      unit_type: p.unit_type || "piece",
+      minimum_qty: String(p.minimum_qty || "1"),
+      sizes: p.sizes || "",
+      item_type: p.item_type || "normal",
+      category: p.category || "Normal",
+      garment_type: p.garment_type || "",
+      sub_category: p.sub_category || "",
+      fabric: p.fabric || "",
+      colors: p.colors || "",
+      measurement_fields: Array.isArray(p.measurement_fields)
+        ? p.measurement_fields.join(",")
+        : String(p.measurement_fields || ""),
+      allow_custom_measurements: p.allow_custom_measurements ?? true,
+      allow_reference_images: p.allow_reference_images ?? true,
+      allow_quotation: p.allow_quotation ?? true,
+      quotation_note: p.quotation_note || "",
+    });
+    setActiveSection("upload");
+  };
+
   const submitItem = async () => {
     if (!form.name.trim()) return alert("Item name required");
     if (!form.price || Number(form.price) <= 0) return alert("Valid price required");
 
-    const { error } = await supabase.from("preorder_products").insert({
+    const galleryUrls = cleanGallery(form.gallery_urls);
+    const primaryPhoto = form.photo_url || galleryUrls[0] || "";
+
+    const payload = {
       name: form.name.trim(),
       description: form.description.trim(),
-      photo_url: form.photo_url,
+      photo_url: primaryPhoto,
+      gallery_urls: galleryUrls,
+      product_details: form.product_details.trim() || null,
+      specifications: form.specifications.trim() || null,
+      usage_info: form.usage_info.trim() || null,
       estimated_delivery_date: form.estimated_delivery_date || null,
       price: Number(form.price || 0),
       unit_type: form.unit_type || "piece",
@@ -242,15 +302,23 @@ export default function PreorderAdmin() {
       allow_quotation: form.allow_quotation,
       quotation_note: form.quotation_note.trim() || null,
       active: true,
-    });
+    };
 
+    const { error } = editingProductId
+      ? await supabase.from("preorder_products").update(payload).eq("id", editingProductId)
+      : await supabase.from("preorder_products").insert(payload);
     if (error) return alert(error.message);
 
-    alert("Pre-order item saved");
+    alert(editingProductId ? "Pre-order item updated" : "Pre-order item saved");
+    setEditingProductId(null);
     setForm({
       name: "",
       description: "",
       photo_url: "",
+      gallery_urls: ["", "", "", "", ""],
+      product_details: "",
+      specifications: "",
+      usage_info: "",
       estimated_delivery_date: "",
       price: "",
       unit_type: "piece",
@@ -351,6 +419,11 @@ export default function PreorderAdmin() {
       "Admin Note",
     ];
 
+    const csvEscape = (value: unknown): string => {
+      const text = String(value ?? "");
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+
     const rows = filteredOrders.map((o) => {
       const p = productMap[o.preorder_product_id];
       return [
@@ -376,18 +449,15 @@ export default function PreorderAdmin() {
       ];
     });
 
-    const html = `
-      <table border="1">
-        <tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr>
-        ${rows.map((r) => `<tr>${r.map((v) => `<td>${v}</td>`).join("")}</tr>`).join("")}
-      </table>
-    `;
-    const blob = new Blob([html], { type: "application/vnd.ms-excel" });
+    const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "preorder-report.xls";
+    a.download = `preorder-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
     a.click();
+    a.remove();
     URL.revokeObjectURL(url);
   };
 
@@ -462,6 +532,7 @@ export default function PreorderAdmin() {
 
   return (
     <div className="min-h-screen bg-[#faf8f3] p-4 text-slate-800 md:p-8">
+      <style>{`@keyframes preorderTabIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }`}</style>
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -513,6 +584,7 @@ export default function PreorderAdmin() {
           </aside>
 
           <main className="space-y-6">
+            <div key={activeSection} className="space-y-6" style={{ animation: "preorderTabIn 220ms ease-out" }}>
             {activeSection === "overview" && (
               <Section title="Overview">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -583,6 +655,18 @@ export default function PreorderAdmin() {
                           <div className="text-xs text-slate-500">
                             Min Qty: {p.minimum_qty || 1} · Unit: {p.unit_type || "piece"} · Sizes: {p.sizes || "-"}
                           </div>
+                          {Array.isArray(p.gallery_urls) && p.gallery_urls.length > 0 && (
+                            <div className="text-xs font-semibold text-emerald-700">
+                              {p.gallery_urls.filter(Boolean).length} product photo{p.gallery_urls.filter(Boolean).length === 1 ? "" : "s"} uploaded
+                            </div>
+                          )}
+                          {(p.product_details || p.specifications || p.usage_info) && (
+                            <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-900">
+                              {p.product_details && <div><b>Info:</b> {String(p.product_details).slice(0, 90)}{String(p.product_details).length > 90 ? "…" : ""}</div>}
+                              {p.specifications && <div><b>Specs:</b> {String(p.specifications).slice(0, 90)}{String(p.specifications).length > 90 ? "…" : ""}</div>}
+                              {p.usage_info && <div><b>Usage:</b> {String(p.usage_info).slice(0, 90)}{String(p.usage_info).length > 90 ? "…" : ""}</div>}
+                            </div>
+                          )}
                           {(p.garment_type || p.fabric || p.colors || p.allow_quotation) && (
                             <div className="rounded-xl bg-purple-50 p-3 text-xs text-purple-900">
                               <div><b>Garment:</b> {p.garment_type || "-"}</div>
@@ -592,6 +676,9 @@ export default function PreorderAdmin() {
                             </div>
                           )}
                           <div className="flex gap-2 pt-2">
+                            <button className={btnPrimary} onClick={() => startEditProduct(p)}>
+                              Edit
+                            </button>
                             <button className={btnSecondary} onClick={() => toggleProduct(p.id, !p.active)}>
                               {p.active ? "Disable" : "Enable"}
                             </button>
@@ -608,7 +695,7 @@ export default function PreorderAdmin() {
             )}
 
             {activeSection === "upload" && (
-              <Section title="Upload Pre-Order Items">
+              <Section title={editingProductId ? "Edit Pre-Order Item" : "Upload Pre-Order Items"}>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                   <input className={input} placeholder="Item Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                   <select
@@ -676,7 +763,27 @@ export default function PreorderAdmin() {
                   <input className={input} placeholder="Fabric e.g. Imported Wool, Cotton" value={form.fabric} onChange={(e) => setForm({ ...form, fabric: e.target.value })} />
                   <input className={input} placeholder="Colors: Black,Navy Blue,Dark Grey" value={form.colors} onChange={(e) => setForm({ ...form, colors: e.target.value })} />
 
-                  <input className={input} placeholder="Sizes/options: XS,S,M,L,XL,XXL,3XL,4XL,Custom" value={form.sizes} onChange={(e) => setForm({ ...form, sizes: e.target.value })} />
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3 md:col-span-3">
+                    <label className="mb-2 block text-xs font-bold uppercase text-slate-500">
+                      Size dropdown list for customers
+                    </label>
+                    <input className={input} placeholder="Sizes/options: XS,S,M,L,XL,XXL,3XL,4XL,Custom" value={form.sizes} onChange={(e) => setForm({ ...form, sizes: e.target.value })} />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {commonSizeOptions.map((size) => {
+                        const active = parseList(form.sizes).some((s) => s.toLowerCase() === size.toLowerCase());
+                        return (
+                          <button
+                            key={size}
+                            type="button"
+                            onClick={() => setForm({ ...form, sizes: toggleCsvValue(form.sizes, size) })}
+                            className={active ? "rounded-full bg-[#153f2f] px-3 py-1 text-xs font-bold text-white" : "rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-100"}
+                          >
+                            {size}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <input className={input} placeholder="Price" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
                   <input className={input} type="date" value={form.estimated_delivery_date} onChange={(e) => setForm({ ...form, estimated_delivery_date: e.target.value })} />
 
@@ -713,14 +820,36 @@ export default function PreorderAdmin() {
                     </div>
                   </div>
 
-                  <div className="md:col-span-3">
-                    <FileUpload value={form.photo_url} onChange={(v) => setForm({ ...form, photo_url: v })} folder="preorder-products" />
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 md:col-span-3">
+                    <h3 className="mb-2 text-sm font-extrabold text-emerald-900">Product Photos</h3>
+                    <p className="mb-3 text-xs text-emerald-800">
+                      Upload up to 5 photos. Photo 1 is used as the main product photo.
+                    </p>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      {form.gallery_urls.map((url, index) => (
+                        <div key={index} className="rounded-2xl border bg-white p-3">
+                          <div className="mb-2 text-xs font-bold uppercase text-slate-500">Photo {index + 1}</div>
+                          <FileUpload
+                            value={url}
+                            onChange={(v) => {
+                              const next = [...form.gallery_urls];
+                              next[index] = v;
+                              setForm({ ...form, gallery_urls: next, photo_url: index === 0 ? v : form.photo_url || next[0] || "" });
+                            }}
+                            folder="preorder-products"
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <textarea className={input + " min-h-24 md:col-span-3"} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+                  <textarea className={input + " min-h-24 md:col-span-3"} placeholder="Product information shown to customer" value={form.product_details} onChange={(e) => setForm({ ...form, product_details: e.target.value })} />
+                  <textarea className={input + " min-h-24 md:col-span-3"} placeholder="Specifications / material / package details" value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} />
+                  <textarea className={input + " min-h-24 md:col-span-3"} placeholder="Usage / care / important notes" value={form.usage_info} onChange={(e) => setForm({ ...form, usage_info: e.target.value })} />
                 </div>
 
                 <button className={btnPrimary + " mt-4"} onClick={submitItem}>
-                  Save Pre-Order Item
+                  {editingProductId ? "Update Pre-Order Item" : "Save Pre-Order Item"}
                 </button>
               </Section>
             )}
@@ -885,6 +1014,7 @@ export default function PreorderAdmin() {
                 </div>
               </Section>
             )}
+          </div>
           </main>
         </div>
       </div>
