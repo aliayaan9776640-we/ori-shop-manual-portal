@@ -11,8 +11,13 @@ export default defineConfig(({ mode }) => ({
       overlay: false,
     },
   },
+
+  base: "./",
+
   plugins: [react()],
+
   envPrefix: ["VITE_", "EXPO_PUBLIC_"],
+
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

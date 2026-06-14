@@ -20,7 +20,7 @@ import {
   Store as StoreIcon,
 } from "lucide-react";
 import { useCustomerStore } from "@/lib/onlineStore";
-import { isSupabaseConfigured } from "@/lib/supabase";
+import { customerSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -280,22 +280,22 @@ export default function CustomerLogin() {
                 htmlFor="cl-phone"
                 className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[hsl(95_25%_25%)]"
               >
-                Mobile number *
+                {mode === "signin" ? "Email *" : "Mobile number *"}
               </Label>
               <div className="relative">
                 <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(28_85%_50%)]" />
                 <input
                   id="cl-phone"
                   name="phone"
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
+                  type={mode === "signin" ? "email" : "tel"}
+                  inputMode={mode === "signin" ? "email" : "tel"}
+                  autoComplete={mode === "signin" ? "email" : "tel"}
                   value={phone}
                   onChange={(e) => {
                     setPhone(e.target.value);
                     if (error) setError(null);
                   }}
-                  placeholder="7771234"
+                  placeholder={mode === "signin" ? "you@example.com" : "7771234"}
                   className="h-11 w-full rounded-xl border border-emerald-200 bg-white pl-10 pr-3 text-sm font-medium text-emerald-950 outline-none transition placeholder:text-emerald-900/40 focus:border-[hsl(28_95%_55%)] focus:ring-2 focus:ring-[hsl(28_95%_55%/0.3)]"
                   required
                 />
@@ -328,7 +328,38 @@ export default function CustomerLogin() {
                 />
               </div>
             </div>
+            {mode === "signin" && (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const emailValue = phone.trim().toLowerCase();
 
+                    if (!emailValue) {
+                      setError("Enter your email first.");
+                      return;
+                    }
+
+                    const { error } = await customerSupabase.auth.resetPasswordForEmail(
+                      emailValue,
+                      {
+                        redirectTo: window.location.origin + "/customer-login",
+                      }
+                    );
+
+                    if (error) {
+                      setError(error.message);
+                      return;
+                    }
+
+                    toast.success("Password reset email sent. Please check your inbox.");
+                  }}
+                  className="text-xs font-semibold text-emerald-800 hover:underline"
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
             {mode === "signup" && (
               <>
                 <div>
@@ -367,7 +398,7 @@ export default function CustomerLogin() {
                     htmlFor="cl-email"
                     className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-[hsl(95_25%_25%)]"
                   >
-                    Email (optional)
+                    Email *
                   </Label>
                   <Input
                     id="cl-email"
@@ -376,6 +407,7 @@ export default function CustomerLogin() {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     className="h-11 border-emerald-200 bg-white"
+                    required
                   />
                 </div>
               </>
