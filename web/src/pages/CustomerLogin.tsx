@@ -40,6 +40,7 @@ export default function CustomerLogin() {
   const initialMode: Mode = params.get("mode") === "signup" ? "signup" : "signin";
 
   const [mode, setMode] = useState<Mode>(initialMode);
+  const [loginEmail, setLoginEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -53,18 +54,16 @@ export default function CustomerLogin() {
     void bootstrap();
   }, [bootstrap]);
 
-  // Pre-fill last used store ID / phone for convenience.
   useEffect(() => {
     try {
       const v = localStorage.getItem(STORE_ID_KEY);
-      if (v && !phone) setPhone(v);
+      if (v && !loginEmail) setLoginEmail(v);
     } catch {
       /* ignore */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // If already signed in, jump to next destination.
   useEffect(() => {
     if (customer) navigate(next, { replace: true });
   }, [customer, navigate, next]);
@@ -72,38 +71,47 @@ export default function CustomerLogin() {
   const onSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
     setError(null);
+
     if (!isSupabaseConfigured) {
       setError("Online store is not configured. Please contact the shop.");
       return;
     }
+
     setBusy(true);
+
     try {
       if (mode === "signin") {
-        if (!phone.trim() || !password) {
-          setError("Mobile number and password are required.");
+        if (!loginEmail.trim() || !password) {
+          setError("Email and password are required.");
           return;
         }
-        const r = await signIn(phone.trim(), password);
+
+        const r = await signIn(loginEmail.trim().toLowerCase(), password);
+
         if (!r.ok) {
           setError(r.error ?? "Sign-in failed");
           return;
         }
+
         try {
-          localStorage.setItem(STORE_ID_KEY, phone.trim());
+          localStorage.setItem(STORE_ID_KEY, loginEmail.trim().toLowerCase());
         } catch {
           /* ignore */
         }
+
         toast.success("Welcome back!");
         navigate(next, { replace: true });
       } else {
-        if (!name.trim() || !phone.trim() || !password) {
-          setError("Name, mobile number and password are required.");
+        if (!name.trim() || !phone.trim() || !email.trim() || !password) {
+          setError("Name, mobile number, email and password are required.");
           return;
         }
+
         if (password.length < 6) {
           setError("Password must be at least 6 characters.");
           return;
         }
+
         const r = await signUp({
           name: name.trim(),
           phone: phone.trim(),
@@ -112,12 +120,14 @@ export default function CustomerLogin() {
           address: address.trim(),
           email: email.trim() || undefined,
         });
+
         if (!r.ok) {
           setError(r.error ?? "Sign-up failed");
           return;
         }
-        toast.success("Account created! You can shop now.");
-        navigate(next, { replace: true });
+
+        toast.success("Verification email sent. Please verify your email, then sign in.");
+        setMode("signin");
       }
     } finally {
       setBusy(false);
@@ -126,7 +136,6 @@ export default function CustomerLogin() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-white">
-      {/* Soft brand gradient background */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-20"
@@ -135,7 +144,7 @@ export default function CustomerLogin() {
             "radial-gradient(120% 80% at 0% 0%, hsl(95 55% 92%) 0%, transparent 55%), radial-gradient(120% 80% at 100% 100%, hsl(28 95% 92%) 0%, transparent 55%), linear-gradient(180deg, #ffffff 0%, hsl(60 30% 98%) 100%)",
         }}
       />
-      {/* Soft Ori Brothers watermark */}
+
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 flex items-center justify-center"
@@ -147,7 +156,7 @@ export default function CustomerLogin() {
           draggable={false}
         />
       </div>
-      {/* Decorative blurred blobs */}
+
       <div
         aria-hidden
         className="pointer-events-none absolute -top-24 -left-24 -z-10 h-72 w-72 rounded-full"
@@ -157,6 +166,7 @@ export default function CustomerLogin() {
           filter: "blur(20px)",
         }}
       />
+
       <div
         aria-hidden
         className="pointer-events-none absolute -bottom-24 -right-24 -z-10 h-80 w-80 rounded-full"
@@ -168,15 +178,12 @@ export default function CustomerLogin() {
       />
 
       <main className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-5 py-8">
-        {/* Top tag */}
         <div className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-widest text-emerald-700 shadow-sm backdrop-blur">
           <Sparkles className="h-3 w-3" />
           Customer Account
         </div>
 
-        {/* Login card */}
         <div className="relative w-full overflow-hidden rounded-3xl border border-black/5 bg-white/90 p-6 shadow-[0_20px_60px_-20px_rgba(20,80,30,0.25)] backdrop-blur sm:p-7">
-          {/* Brand bar */}
           <div
             aria-hidden
             className="absolute inset-x-0 top-0 h-1.5"
@@ -186,7 +193,6 @@ export default function CustomerLogin() {
             }}
           />
 
-          {/* Logo */}
           <div className="flex flex-col items-center text-center">
             <div className="relative">
               <div
@@ -198,6 +204,7 @@ export default function CustomerLogin() {
                   filter: "blur(8px)",
                 }}
               />
+
               <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-white shadow-md ring-4 ring-white">
                 <img
                   src={LOGO_URL}
@@ -211,6 +218,7 @@ export default function CustomerLogin() {
             <h1 className="mt-4 text-2xl font-extrabold tracking-tight text-[hsl(95_45%_18%)]">
               {mode === "signin" ? "Customer Login" : "Create Customer Account"}
             </h1>
+
             <p className="mt-1 text-sm text-[hsl(95_15%_35%)]">
               {mode === "signin"
                 ? "Sign in to place orders & track deliveries."
@@ -218,7 +226,6 @@ export default function CustomerLogin() {
             </p>
           </div>
 
-          {/* Mode tabs */}
           <div className="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-emerald-50/70 p-1 ring-1 ring-emerald-100">
             <button
               type="button"
@@ -236,6 +243,7 @@ export default function CustomerLogin() {
               <LogIn className="h-3.5 w-3.5" />
               Sign in
             </button>
+
             <button
               type="button"
               onClick={() => {
@@ -254,7 +262,6 @@ export default function CustomerLogin() {
             </button>
           </div>
 
-          {/* Form */}
           <form onSubmit={onSubmit} className="mt-5 space-y-3.5">
             {mode === "signup" && (
               <div>
@@ -282,17 +289,24 @@ export default function CustomerLogin() {
               >
                 {mode === "signin" ? "Email *" : "Mobile number *"}
               </Label>
+
               <div className="relative">
-                <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(28_85%_50%)]" />
+                {mode === "signin" ? (
+                  <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(28,85%,50%)]" />
+                ) : (
+                  <Phone className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(28,85%,50%)]" />
+                )}
+
                 <input
                   id="cl-phone"
-                  name="phone"
+                  name={mode === "signin" ? "email" : "phone"}
                   type={mode === "signin" ? "email" : "tel"}
                   inputMode={mode === "signin" ? "email" : "tel"}
                   autoComplete={mode === "signin" ? "email" : "tel"}
-                  value={phone}
+                  value={mode === "signin" ? loginEmail : phone}
                   onChange={(e) => {
-                    setPhone(e.target.value);
+                    if (mode === "signin") setLoginEmail(e.target.value);
+                    else setPhone(e.target.value);
                     if (error) setError(null);
                   }}
                   placeholder={mode === "signin" ? "you@example.com" : "7771234"}
@@ -309,6 +323,7 @@ export default function CustomerLogin() {
               >
                 Password *
               </Label>
+
               <div className="relative">
                 <Lock className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(28_85%_50%)]" />
                 <input
@@ -328,12 +343,13 @@ export default function CustomerLogin() {
                 />
               </div>
             </div>
+
             {mode === "signin" && (
               <div className="text-right">
                 <button
                   type="button"
                   onClick={async () => {
-                    const emailValue = phone.trim().toLowerCase();
+                    const emailValue = loginEmail.trim().toLowerCase();
 
                     if (!emailValue) {
                       setError("Enter your email first.");
@@ -343,7 +359,7 @@ export default function CustomerLogin() {
                     const { error } = await customerSupabase.auth.resetPasswordForEmail(
                       emailValue,
                       {
-                        redirectTo: window.location.origin + "/customer-login",
+                        redirectTo: window.location.origin + "/reset-password",
                       }
                     );
 
@@ -360,6 +376,7 @@ export default function CustomerLogin() {
                 </button>
               </div>
             )}
+
             {mode === "signup" && (
               <>
                 <div>
@@ -377,6 +394,7 @@ export default function CustomerLogin() {
                     className="h-11 border-emerald-200 bg-white"
                   />
                 </div>
+
                 <div>
                   <Label
                     htmlFor="cl-address"
@@ -393,6 +411,7 @@ export default function CustomerLogin() {
                     className="border-emerald-200 bg-white"
                   />
                 </div>
+
                 <div>
                   <Label
                     htmlFor="cl-email"
@@ -450,6 +469,7 @@ export default function CustomerLogin() {
                 <StoreIcon className="mr-1.5 h-4 w-4" />
                 Browse Store
               </Button>
+
               <Button
                 type="button"
                 variant="ghost"
@@ -467,7 +487,6 @@ export default function CustomerLogin() {
             </div>
           </form>
 
-          {/* Powered by */}
           <div className="mt-5 flex items-center justify-center gap-2 border-t border-emerald-100/80 pt-4">
             <img
               src={LOGO_URL_BROTHERS}
@@ -480,12 +499,12 @@ export default function CustomerLogin() {
           </div>
         </div>
 
-        {/* Contact info */}
         <section className="mt-5 w-full">
           <div className="rounded-2xl border border-emerald-100 bg-white/70 p-3.5 shadow-sm backdrop-blur">
             <div className="mb-2 text-center text-[10px] font-bold uppercase tracking-widest text-[hsl(95_25%_30%)]">
               Need help? Get in touch
             </div>
+
             <div className="grid gap-2">
               <a
                 href="mailto:sales@oribrother.com"
@@ -494,6 +513,7 @@ export default function CustomerLogin() {
                 <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
                   <Mail className="h-4 w-4" />
                 </span>
+
                 <div className="min-w-0 flex-1">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
                     Email
@@ -503,6 +523,7 @@ export default function CustomerLogin() {
                   </div>
                 </div>
               </a>
+
               <div className="grid grid-cols-2 gap-2">
                 <a
                   href="https://wa.me/9609778840"
@@ -513,6 +534,7 @@ export default function CustomerLogin() {
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
                     <MessageCircle className="h-4 w-4" />
                   </span>
+
                   <div className="min-w-0 flex-1">
                     <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
                       WhatsApp
@@ -522,6 +544,7 @@ export default function CustomerLogin() {
                     </div>
                   </div>
                 </a>
+
                 <a
                   href="viber://chat?number=%2B9609778840"
                   className="flex items-center gap-2 rounded-xl border border-orange-100 bg-white px-3 py-2 transition hover:border-orange-300 hover:bg-orange-50"
@@ -529,6 +552,7 @@ export default function CustomerLogin() {
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-orange-100 text-orange-700">
                     <ShoppingBag className="h-4 w-4" />
                   </span>
+
                   <div className="min-w-0 flex-1">
                     <div className="text-[10px] font-semibold uppercase tracking-wider text-orange-700">
                       Viber
