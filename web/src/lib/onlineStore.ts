@@ -1,7 +1,6 @@
 import { create } from "zustand";
 import {
   customerSupabase,
-  customerEmailFromPhone,
   supabase,
   isSupabaseConfigured,
 } from "./supabase";
@@ -278,6 +277,10 @@ interface CustomerStoreState {
     address: string;
     email?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
+  verifySignupOtp: (
+    email: string,
+    token: string
+  ) => Promise<{ ok: boolean; error?: string }>;
   signIn: (phone: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   signOut: () => Promise<void>;
 
@@ -348,43 +351,68 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
 
   signUp: async ({ name, phone, password, island, address, email }) => {
     if (!isSupabaseConfigured) return { ok: false, error: "Supabase not configured" };
+
     const cleanPhone = phone.replace(/\s+/g, "");
+    const cleanEmail = String(email || "").trim().toLowerCase();
+
+    if (!cleanEmail) return { ok: false, error: "Email is required" };
     if (!cleanPhone) return { ok: false, error: "Phone is required" };
-    const synth = customerEmailFromPhone(cleanPhone);
-    const { data, error } = await customerSupabase.auth.signUp({
-      email: synth,
+
+    const { error } = await customerSupabase.auth.signUp({
+      email: cleanEmail,
       password,
+      options: {
+        emailRedirectTo: window.location.origin + "/customer-login",
+        data: {
+          name,
+          phone: cleanPhone,
+          island,
+          address,
+          email: cleanEmail,
+        },
+      },
     });
+
     if (error) return { ok: false, error: error.message };
-    const uid = data.user?.id;
-    if (!uid) return { ok: false, error: "Signup failed" };
-    const { data: row, error: insErr } = await customerSupabase
-      .from("public_customers")
-      .insert({
-        auth_user_id: uid,
-        name,
-        phone: cleanPhone,
-        island: island || null,
-        address: address || null,
-        email: email || null,
-        // Customers are auto-approved on signup; ordering is instant.
-        approval_status: "approved",
-      })
-      .select()
-      .single();
-    if (insErr) return { ok: false, error: insErr.message };
-    set({ customer: rowToCustomer(row as PublicCustomerRow) });
+
     return { ok: true };
   },
 
-  signIn: async (phone, password) => {
+  verifySignupOtp: async (email, token) => {
     if (!isSupabaseConfigured) return { ok: false, error: "Supabase not configured" };
-    const synth = customerEmailFromPhone(phone.replace(/\s+/g, ""));
+
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanToken = token.trim();
+
+    if (!cleanEmail) return { ok: false, error: "Email is required" };
+    if (!cleanToken) return { ok: false, error: "OTP is required" };
+
+    const { error } = await customerSupabase.auth.verifyOtp({
+      email: cleanEmail,
+      token: cleanToken,
+      type: "signup",
+    });
+
+    if (error) return { ok: false, error: error.message };
+
+    await get().bootstrap();
+    return { ok: true };
+  },
+
+  signIn: async (email, password) => {
+    if (!isSupabaseConfigured) return { ok: false, error: "Supabase not configured" };
+
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail) return { ok: false, error: "Email is required" };
+
     const { error } = await customerSupabase.auth.signInWithPassword({
-      email: synth,
+      email: cleanEmail,
       password,
     });
+
     if (error) return { ok: false, error: error.message };
+
     await get().bootstrap();
     return { ok: true };
   },
