@@ -14,12 +14,15 @@ const SUPABASE_ANON_KEY: string =
 
 export const isSupabaseConfigured: boolean =
   SUPABASE_URL.length > 0 && SUPABASE_ANON_KEY.length > 0;
+console.log("[supabase] configured:", isSupabaseConfigured);
+console.log("[supabase] url:", SUPABASE_URL);
+console.log("[supabase] anon key exists:", SUPABASE_ANON_KEY.length > 20);
 
 if (!isSupabaseConfigured) {
   // eslint-disable-next-line no-console
   console.warn(
     "[supabase] Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY. " +
-      "The app will run with a local in-memory store until configured."
+    "The app will run with a local in-memory store until configured."
   );
 }
 
@@ -74,5 +77,5 @@ export const customerSupabase: SupabaseClient = createClient(
 /** Synthetic email used for customer auth (Supabase Auth requires an email). */
 export const customerEmailFromPhone = (phone: string): string => {
   const clean = phone.replace(/[^0-9a-zA-Z]/g, "").toLowerCase();
-return `c${clean}@oribarakah.com`;
+  return `c${clean}@oribarakah.com`;
 };
