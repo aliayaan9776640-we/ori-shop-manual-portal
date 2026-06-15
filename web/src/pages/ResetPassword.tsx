@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { customerSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { Lock, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
@@ -67,7 +67,7 @@ export default function ResetPassword() {
         //   /reset-password?token_hash=...&type=recovery
         if (tokenHash) {
           const otpType = (type ?? "recovery") as "recovery" | "email" | "magiclink" | "signup" | "invite";
-          const { data, error: otpErr } = await supabase.auth.verifyOtp({
+          const { data, error: otpErr } = await customerSupabase.auth.verifyOtp({
             type: otpType,
             token_hash: tokenHash,
           });
@@ -83,7 +83,7 @@ export default function ResetPassword() {
 
         // PKCE flow: ?code=...
         if (code) {
-          const { data, error: exErr } = await supabase.auth.exchangeCodeForSession(code);
+          const { data, error: exErr } = await customerSupabase.auth.exchangeCodeForSession(code);
           console.log("[reset-password] exchangeCodeForSession", { ok: !exErr, user: data.session?.user?.email });
           if (exErr) {
             finishCheck(false, exErr.message);
@@ -97,7 +97,7 @@ export default function ResetPassword() {
 
         // Implicit flow: tokens in hash
         if (hashTokens.access_token && hashTokens.refresh_token) {
-          const { data, error: setErr } = await supabase.auth.setSession({
+          const { data, error: setErr } = await customerSupabase.auth.setSession({
             access_token: hashTokens.access_token,
             refresh_token: hashTokens.refresh_token,
           });
@@ -112,7 +112,7 @@ export default function ResetPassword() {
         }
 
         // No URL tokens — check if a recovery session is already present.
-        const { data } = await supabase.auth.getSession();
+        const { data } = await customerSupabase.auth.getSession();
         console.log("[reset-password] existing session", { user: data.session?.user?.email });
         finishCheck(!!data.session);
       } catch (e) {
@@ -123,7 +123,7 @@ export default function ResetPassword() {
 
     void init();
 
-    const sub = supabase.auth.onAuthStateChange((event, session) => {
+    const sub = customerSupabase.auth.onAuthStateChange((event, session) => {
       console.log("[reset-password] auth event", event, session?.user?.email);
       if (event === "PASSWORD_RECOVERY" && session) {
         if (!cancelled) setStatus("ready");
@@ -148,7 +148,7 @@ export default function ResetPassword() {
       return;
     }
     setStatus("saving");
-    const { error: updErr } = await supabase.auth.updateUser({ password });
+    const { error: updErr } = await customerSupabase.auth.updateUser({ password });
     if (updErr) {
       console.error("[reset-password] updateUser failed", updErr);
       setError(updErr.message);
@@ -158,10 +158,10 @@ export default function ResetPassword() {
     console.log("[reset-password] password updated successfully");
     setStatus("done");
     toast.success("Password updated. Please sign in.");
-    // Sign the recovery session out so the user starts fresh on /login.
-    await supabase.auth.signOut();
+    // Sign the recovery session out so the customer starts fresh on /customer-login.
+    await customerSupabase.auth.signOut();
     setTimeout(() => {
-      navigate("/login", { replace: true });
+      navigate("/customer-login", { replace: true });
     }, 1200);
   };
 
@@ -189,7 +189,7 @@ export default function ResetPassword() {
               Link invalid or expired
             </div>
             <p className="text-sm text-destructive/90">{error ?? "Please request a new password reset email."}</p>
-            <Button onClick={() => navigate("/login")} className="mt-4 w-full">
+            <Button onClick={() => navigate("/customer-login")} className="mt-4 w-full">
               Back to sign in
             </Button>
           </div>
@@ -263,7 +263,7 @@ export default function ResetPassword() {
 
             <button
               type="button"
-              onClick={() => navigate("/login")}
+              onClick={() => navigate("/customer-login")}
               className="block w-full text-center text-xs text-muted-foreground hover:text-foreground"
             >
               Cancel and return to sign in
