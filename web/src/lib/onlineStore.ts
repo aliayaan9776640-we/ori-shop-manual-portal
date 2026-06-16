@@ -355,6 +355,10 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
     const cleanPhone = phone.replace(/\s+/g, "");
     const cleanEmail = String(email || "").trim().toLowerCase();
 
+    if (cleanEmail.endsWith("@oribarakah.com")) {
+      return { ok: false, error: "Please enter your real email address." };
+    }
+
     if (!cleanEmail) return { ok: false, error: "Email is required" };
     if (!cleanPhone) return { ok: false, error: "Phone is required" };
 
