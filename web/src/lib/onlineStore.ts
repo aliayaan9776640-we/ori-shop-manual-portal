@@ -328,24 +328,57 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
       set({ loading: false });
       return;
     }
+
     const { data } = await customerSupabase.auth.getSession();
-    const uid = data.session?.user.id;
-    if (!uid) {
+    const user = data.session?.user;
+
+    if (!user) {
       set({ customer: null, loading: false });
       return;
     }
-    const { data: row, error } = await customerSupabase
+
+    const uid = user.id;
+    const email = user.email?.trim().toLowerCase() ?? "";
+
+    let { data: row, error } = await customerSupabase
       .from("public_customers")
       .select("*")
       .eq("auth_user_id", uid)
       .maybeSingle();
+
+    if (!row && email) {
+      const res = await customerSupabase
+        .from("public_customers")
+        .select("*")
+        .eq("email", email)
+        .maybeSingle();
+
+      row = res.data;
+      error = res.error;
+
+      if (row && (row as PublicCustomerRow).auth_user_id !== uid) {
+        const { error: linkErr } = await customerSupabase
+          .from("public_customers")
+          .update({ auth_user_id: uid })
+          .eq("email", email);
+
+        if (linkErr) {
+          console.error("[onlineStore] customer auth link update failed", linkErr);
+        } else {
+          row = { ...(row as PublicCustomerRow), auth_user_id: uid };
+        }
+      }
+    }
+
     if (error) {
       console.error("[onlineStore] customer fetch failed", error);
     }
+
     set({
       customer: row ? rowToCustomer(row as PublicCustomerRow) : null,
       loading: false,
     });
+
     if (row) await get().loadMyOrders();
   },
 
@@ -433,14 +466,14 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
 
     if (error) return { ok: false, error: error.message };
 
-    const user = data.user ?? data.session?.user;
-
     if (data.session) {
       await customerSupabase.auth.setSession({
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token,
       });
     }
+
+    const user = data.user ?? data.session?.user;
 
     if (!user) {
       return {
@@ -484,7 +517,7 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
     if (!customerRow) {
       return {
         ok: false,
-        error: "Customer profile created, but could not load.",
+        error: "Customer profile created, but could not load. Please refresh and sign in.",
       };
     }
 
