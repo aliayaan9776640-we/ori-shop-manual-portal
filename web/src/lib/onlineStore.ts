@@ -361,8 +361,36 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
 
     if (!cleanEmail) return { ok: false, error: "Email is required" };
     if (!cleanPhone) return { ok: false, error: "Phone is required" };
+    const { data: existingCustomer } = await customerSupabase
+      .from("public_customers")
+      .select("id,email")
+      .eq("email", cleanEmail)
+      .maybeSingle();
 
-    const { error } = await customerSupabase.auth.signUp({
+    if (existingCustomer) {
+      return {
+        ok: false,
+        error: "This email is already registered. Please sign in or use forgot password.",
+      };
+    }
+    console.log("[signup] checking duplicate email:", cleanEmail);
+    const { data: emailExists, error: emailCheckError } =
+      await customerSupabase.rpc("email_already_registered", {
+        p_email: cleanEmail,
+      });
+
+    if (emailCheckError) {
+      return { ok: false, error: emailCheckError.message };
+    }
+    console.log("[signup] emailExists result:", emailExists, emailCheckError);
+
+    if (emailExists) {
+      return {
+        ok: false,
+        error: "This email is already registered. Please sign in or use forgot password.",
+      };
+    }
+    const { data, error } = await customerSupabase.auth.signUp({
       email: cleanEmail,
       password,
       options: {
@@ -378,6 +406,12 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
     });
 
     if (error) return { ok: false, error: error.message };
+    if (!data.user || data.user.identities?.length === 0) {
+      return {
+        ok: false,
+        error: "This email is already registered. Please sign in or use forgot password.",
+      };
+    }
 
     return { ok: true };
   },
@@ -391,7 +425,7 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
     if (!cleanEmail) return { ok: false, error: "Email is required" };
     if (!cleanToken) return { ok: false, error: "OTP is required" };
 
-    const { error } = await customerSupabase.auth.verifyOtp({
+    const { data, error } = await customerSupabase.auth.verifyOtp({
       email: cleanEmail,
       token: cleanToken,
       type: "signup",
@@ -399,7 +433,68 @@ export const useCustomerStore = create<CustomerStoreState>((set, get) => ({
 
     if (error) return { ok: false, error: error.message };
 
-    await get().bootstrap();
+    const user = data.user ?? data.session?.user;
+
+    if (data.session) {
+      await customerSupabase.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      });
+    }
+
+    if (!user) {
+      return {
+        ok: false,
+        error: "Email verified, but login session was not created. Please sign in.",
+      };
+    }
+
+    const meta = user.user_metadata ?? {};
+
+    const { error: upsertErr } = await customerSupabase
+      .from("public_customers")
+      .upsert(
+        {
+          auth_user_id: user.id,
+          name: String(meta.name ?? ""),
+          phone: String(meta.phone ?? ""),
+          island: String(meta.island ?? ""),
+          address: String(meta.address ?? ""),
+          email: cleanEmail,
+          approval_status: "approved",
+          active: true,
+        },
+        { onConflict: "email" }
+      );
+
+    if (upsertErr) {
+      return { ok: false, error: upsertErr.message };
+    }
+
+    const { data: customerRow, error: customerLoadErr } = await customerSupabase
+      .from("public_customers")
+      .select("*")
+      .eq("email", cleanEmail)
+      .maybeSingle();
+
+    if (customerLoadErr) {
+      return { ok: false, error: customerLoadErr.message };
+    }
+
+    if (!customerRow) {
+      return {
+        ok: false,
+        error: "Customer profile created, but could not load.",
+      };
+    }
+
+    set({
+      customer: rowToCustomer(customerRow as PublicCustomerRow),
+      loading: false,
+    });
+
+    await get().loadMyOrders();
+
     return { ok: true };
   },
 
