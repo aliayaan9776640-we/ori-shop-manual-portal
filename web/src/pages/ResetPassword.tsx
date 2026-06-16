@@ -275,7 +275,13 @@ export default function ResetPassword() {
       setStatus("ready");
       return;
     }
+    const { data: sessionData } = await customerSupabase.auth.getSession();
 
+    if (!sessionData.session) {
+      setError("Reset session missing. Please open the latest reset email link again.");
+      setStatus("ready");
+      return;
+    }
     const { error: updErr } = await customerSupabase.auth.updateUser({
       password,
     });
