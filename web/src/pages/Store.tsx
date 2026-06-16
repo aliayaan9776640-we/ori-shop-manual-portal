@@ -1874,135 +1874,265 @@ function AuthDialog({
 }) {
   const signIn = useCustomerStore((s) => s.signIn);
   const signUp = useCustomerStore((s) => s.signUp);
-  const [mode, setMode] = useState<"signin" | "signup">(initialMode);
+  const verifySignupOtp = useCustomerStore((s) => s.verifySignupOtp);
+  const bootstrap = useCustomerStore((s) => s.bootstrap);
+
+  const [mode, setMode] = useState<"signin" | "signup" | "verify">(initialMode);
   useEffect(() => {
     if (open) setMode(initialMode);
   }, [open, initialMode]);
+
+  const [loginEmail, setLoginEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [island, setIsland] = useState("");
   const [address, setAddress] = useState("");
   const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
+  const [pendingEmail, setPendingEmail] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async (): Promise<void> => {
     setBusy(true);
     try {
       if (mode === "signin") {
-        const r = await signIn(phone, password);
+        const cleanEmail = loginEmail.trim().toLowerCase();
+
+        if (!cleanEmail || !password) {
+          toast.error("Email and password are required");
+          return;
+        }
+
+        const r = await signIn(cleanEmail, password);
         if (!r.ok) {
           toast.error(r.error ?? "Sign-in failed");
           return;
         }
+
+        await bootstrap();
         toast.success("Welcome back!");
         onOpenChange(false);
-      } else {
-        if (!name.trim() || !phone.trim() || !password) {
-          toast.error("Name, phone and password are required");
-          return;
-        }
-        if (password.length < 6) {
-          toast.error("Password must be at least 6 characters");
-          return;
-        }
-        const r = await signUp({
-          name: name.trim(),
-          phone: phone.trim(),
-          password,
-          island: island.trim(),
-          address: address.trim(),
-          email: email.trim() || undefined,
-        });
-        if (!r.ok) {
-          toast.error(r.error ?? "Sign-up failed");
-          return;
-        }
-        toast.success("Account created!");
-        onOpenChange(false);
+        return;
       }
+
+      if (mode === "verify") {
+        const cleanEmail = pendingEmail.trim().toLowerCase();
+        const cleanOtp = otp.trim();
+
+        if (!cleanEmail || !cleanOtp) {
+          toast.error("Email OTP is required");
+          return;
+        }
+
+        const r = await verifySignupOtp(cleanEmail, cleanOtp);
+        if (!r.ok) {
+          toast.error(r.error ?? "OTP verification failed");
+          return;
+        }
+
+        await bootstrap();
+        toast.success("Email verified. Please sign in.");
+        setMode("signin");
+        setLoginEmail(cleanEmail);
+        setPassword("");
+        setOtp("");
+        return;
+      }
+
+      if (!name.trim() || !phone.trim() || !email.trim() || !password) {
+        toast.error("Name, mobile number, email and password are required");
+        return;
+      }
+
+      if (password.length < 6) {
+        toast.error("Password must be at least 6 characters");
+        return;
+      }
+
+      const cleanEmail = email.trim().toLowerCase();
+
+      const r = await signUp({
+        name: name.trim(),
+        phone: phone.trim(),
+        password,
+        island: island.trim(),
+        address: address.trim(),
+        email: cleanEmail,
+      });
+
+      if (!r.ok) {
+        const msg = r.error ?? "Sign-up failed";
+
+        if (
+          isSupabaseConfigured &&
+          /already|registered|exists/i.test(msg)
+        ) {
+          const { error: resendErr } = await customerSupabase.auth.resend({
+            type: "signup",
+            email: cleanEmail,
+            options: {
+              emailRedirectTo: `${window.location.origin}/customer-login`,
+            },
+          });
+
+          if (resendErr) {
+            toast.error(resendErr.message);
+            return;
+          }
+
+          setPendingEmail(cleanEmail);
+          toast.success("OTP resent to your email.");
+          setMode("verify");
+          return;
+        }
+
+        toast.error(msg);
+        return;
+      }
+
+      setPendingEmail(cleanEmail);
+      toast.success("OTP sent to your email.");
+      setMode("verify");
     } finally {
       setBusy(false);
     }
   };
 
+  const title =
+    mode === "signin"
+      ? "Sign in"
+      : mode === "verify"
+        ? "Verify email"
+        : "Create account";
+
+  const description =
+    mode === "signin"
+      ? "Use your registered email address."
+      : mode === "verify"
+        ? "Enter the OTP code sent to your email."
+        : "Register to place online orders.";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-emerald-800">
-            {mode === "signin" ? "Sign in" : "Create account"}
-          </DialogTitle>
-          <DialogDescription>
-            {mode === "signin"
-              ? "Use your registered phone number."
-              : "Register to place online orders."}
-          </DialogDescription>
+          <DialogTitle className="text-emerald-800">{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+
         <div className="space-y-3">
-          {mode === "signup" && (
-            <div>
-              <Label>Full name *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-          )}
-          <div>
-            <Label>Mobile number *</Label>
-            <Input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="7771234"
-            />
-          </div>
-          <div>
-            <Label>Password *</Label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-          {mode === "signup" && (
+          {mode === "verify" ? (
             <>
               <div>
-                <Label>Island</Label>
-                <Input value={island} onChange={(e) => setIsland(e.target.value)} />
-              </div>
-              <div>
-                <Label>Address</Label>
-                <Textarea
-                  rows={2}
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={pendingEmail}
+                  onChange={(e) => setPendingEmail(e.target.value)}
+                  placeholder="you@example.com"
                 />
               </div>
               <div>
-                <Label>Email (optional)</Label>
+                <Label>OTP code *</Label>
                 <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder="Enter OTP code"
                 />
               </div>
             </>
+          ) : (
+            <>
+              {mode === "signup" && (
+                <div>
+                  <Label>Full name *</Label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} />
+                </div>
+              )}
+
+              <div>
+                <Label>{mode === "signin" ? "Email *" : "Mobile number *"}</Label>
+                <Input
+                  type={mode === "signin" ? "email" : "tel"}
+                  value={mode === "signin" ? loginEmail : phone}
+                  onChange={(e) => {
+                    if (mode === "signin") setLoginEmail(e.target.value);
+                    else setPhone(e.target.value);
+                  }}
+                  placeholder={mode === "signin" ? "you@example.com" : "7771234"}
+                />
+              </div>
+
+              <div>
+                <Label>Password *</Label>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+
+              {mode === "signup" && (
+                <>
+                  <div>
+                    <Label>Island</Label>
+                    <Input value={island} onChange={(e) => setIsland(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>Address</Label>
+                    <Textarea
+                      rows={2}
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>Email *</Label>
+                    <Input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                    />
+                  </div>
+                </>
+              )}
+            </>
           )}
         </div>
+
         <DialogFooter className="gap-2">
           <Button
             variant="ghost"
-            onClick={() =>
-              setMode((m) => (m === "signin" ? "signup" : "signin"))
-            }
+            onClick={() => {
+              if (mode === "verify") {
+                setMode("signin");
+                return;
+              }
+              setMode((m) => (m === "signin" ? "signup" : "signin"));
+            }}
             disabled={busy}
           >
-            {mode === "signin" ? "Create account" : "Have an account? Sign in"}
+            {mode === "signin"
+              ? "Create account"
+              : mode === "verify"
+                ? "Back to sign in"
+                : "Have an account? Sign in"}
           </Button>
+
           <Button
             disabled={busy}
             onClick={() => void submit()}
             className="bg-emerald-600 text-white hover:bg-emerald-700"
           >
-            {mode === "signin" ? "Sign in" : "Create"}
+            {busy
+              ? "Please wait..."
+              : mode === "signin"
+                ? "Sign in"
+                : mode === "verify"
+                  ? "Verify OTP"
+                  : "Create"}
           </Button>
         </DialogFooter>
       </DialogContent>
