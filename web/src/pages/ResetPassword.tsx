@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { customerSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { Lock, AlertCircle, CheckCircle2 } from "lucide-react";
@@ -8,20 +8,12 @@ import { toast } from "sonner";
 
 type Status = "checking" | "ready" | "invalid" | "saving" | "done";
 
-type RecoveryTokens = {
-  access_token: string;
-  refresh_token: string;
-};
-
-const RECOVERY_TOKENS_KEY = "ori-customer-password-recovery-tokens";
-
 export default function ResetPassword() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<Status>("checking");
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const recoveryTokensRef = useRef<RecoveryTokens | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -42,21 +34,7 @@ export default function ResetPassword() {
       }
     };
 
-    const saveRecoveryTokens = (tokens: RecoveryTokens): void => {
-      recoveryTokensRef.current = tokens;
-      try {
-        sessionStorage.setItem(RECOVERY_TOKENS_KEY, JSON.stringify(tokens));
-      } catch {
-        /* ignore */
-      }
-    };
-
-    const parseHashTokens = (): {
-      access_token?: string;
-      refresh_token?: string;
-      type?: string;
-      error_description?: string;
-    } => {
+    const parseHashTokens = (): { access_token?: string; refresh_token?: string; type?: string; error_description?: string } => {
       const hash = window.location.hash.startsWith("#")
         ? window.location.hash.slice(1)
         : window.location.hash;
@@ -85,105 +63,57 @@ export default function ResetPassword() {
           return;
         }
 
+        // OTP / token_hash flow (modern Supabase email links):
+        //   /reset-password?token_hash=...&type=recovery
         if (tokenHash) {
-          const otpType = (type ?? "recovery") as
-            | "recovery"
-            | "email"
-            | "magiclink"
-            | "signup"
-            | "invite";
-
+          const otpType = (type ?? "recovery") as "recovery" | "email" | "magiclink" | "signup" | "invite";
           const { data, error: otpErr } = await customerSupabase.auth.verifyOtp({
             type: otpType,
             token_hash: tokenHash,
           });
-
-          console.log("[reset-password] verifyOtp", {
-            ok: !otpErr,
-            user: data.session?.user?.email,
-            type: otpType,
-          });
-
+          console.log("[reset-password] verifyOtp", { ok: !otpErr, user: data.session?.user?.email, type: otpType });
           if (otpErr) {
             finishCheck(false, otpErr.message);
             return;
           }
-
-          if (data.session?.access_token && data.session?.refresh_token) {
-            saveRecoveryTokens({
-              access_token: data.session.access_token,
-              refresh_token: data.session.refresh_token,
-            });
-          }
-
           window.history.replaceState({}, document.title, "/reset-password");
           finishCheck(!!data.session);
           return;
         }
 
+        // PKCE flow: ?code=...
         if (code) {
-          const { data, error: exErr } =
-            await customerSupabase.auth.exchangeCodeForSession(code);
-
-          console.log("[reset-password] exchangeCodeForSession", {
-            ok: !exErr,
-            user: data.session?.user?.email,
-          });
-
+          const { data, error: exErr } = await customerSupabase.auth.exchangeCodeForSession(code);
+          console.log("[reset-password] exchangeCodeForSession", { ok: !exErr, user: data.session?.user?.email });
           if (exErr) {
             finishCheck(false, exErr.message);
             return;
           }
-
-          if (data.session?.access_token && data.session?.refresh_token) {
-            saveRecoveryTokens({
-              access_token: data.session.access_token,
-              refresh_token: data.session.refresh_token,
-            });
-          }
-
+          // Clean URL
           window.history.replaceState({}, document.title, "/reset-password");
           finishCheck(!!data.session);
           return;
         }
 
+        // Implicit flow: tokens in hash
         if (hashTokens.access_token && hashTokens.refresh_token) {
-          const tokens = {
+          const { data, error: setErr } = await customerSupabase.auth.setSession({
             access_token: hashTokens.access_token,
             refresh_token: hashTokens.refresh_token,
-          };
-
-          const { data, error: setErr } = await customerSupabase.auth.setSession(tokens);
-
-          console.log("[reset-password] setSession from hash", {
-            ok: !setErr,
-            user: data.session?.user?.email,
           });
-
+          console.log("[reset-password] setSession from hash", { ok: !setErr, user: data.session?.user?.email });
           if (setErr) {
             finishCheck(false, setErr.message);
             return;
           }
-
-          saveRecoveryTokens(tokens);
           window.history.replaceState({}, document.title, "/reset-password");
           finishCheck(!!data.session);
           return;
         }
 
+        // No URL tokens — check if a recovery session is already present.
         const { data } = await customerSupabase.auth.getSession();
-
-        if (data.session?.access_token && data.session?.refresh_token) {
-          saveRecoveryTokens({
-            access_token: data.session.access_token,
-            refresh_token: data.session.refresh_token,
-          });
-        }
-
-        console.log("[reset-password] existing session", {
-          user: data.session?.user?.email,
-        });
-
+        console.log("[reset-password] existing session", { user: data.session?.user?.email });
         finishCheck(!!data.session);
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Failed to verify reset link.";
@@ -195,14 +125,6 @@ export default function ResetPassword() {
 
     const sub = customerSupabase.auth.onAuthStateChange((event, session) => {
       console.log("[reset-password] auth event", event, session?.user?.email);
-
-      if (session?.access_token && session?.refresh_token) {
-        saveRecoveryTokens({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-        });
-      }
-
       if (event === "PASSWORD_RECOVERY" && session) {
         if (!cancelled) setStatus("ready");
       }
@@ -214,97 +136,30 @@ export default function ResetPassword() {
     };
   }, []);
 
-  const getSavedRecoveryTokens = (): RecoveryTokens | null => {
-    if (recoveryTokensRef.current) return recoveryTokensRef.current;
-
-    try {
-      const raw = sessionStorage.getItem(RECOVERY_TOKENS_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as Partial<RecoveryTokens>;
-      if (parsed.access_token && parsed.refresh_token) {
-        return {
-          access_token: parsed.access_token,
-          refresh_token: parsed.refresh_token,
-        };
-      }
-    } catch {
-      /* ignore */
-    }
-
-    return null;
-  };
-
-  const ensureRecoverySession = async (): Promise<boolean> => {
-    const { data } = await customerSupabase.auth.getSession();
-    if (data.session) return true;
-
-    const tokens = getSavedRecoveryTokens();
-    if (!tokens) return false;
-
-    const { data: restored, error: restoreErr } =
-      await customerSupabase.auth.setSession(tokens);
-
-    if (restoreErr) {
-      console.error("[reset-password] restore recovery session failed", restoreErr);
-      return false;
-    }
-
-    return !!restored.session;
-  };
-
   const onSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
     setError(null);
-
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
       return;
     }
-
     if (password !== confirm) {
       setError("Passwords do not match.");
       return;
     }
-
     setStatus("saving");
-
-    const hasSession = await ensureRecoverySession();
-
-    if (!hasSession) {
-      setError("Auth session missing. Please request a new reset email and open the latest link.");
-      setStatus("ready");
-      return;
-    }
-    const { data: sessionData } = await customerSupabase.auth.getSession();
-
-    if (!sessionData.session) {
-      setError("Reset session missing. Please open the latest reset email link again.");
-      setStatus("ready");
-      return;
-    }
-    const { error: updErr } = await customerSupabase.auth.updateUser({
-      password,
-    });
-
+    const { error: updErr } = await customerSupabase.auth.updateUser({ password });
     if (updErr) {
       console.error("[reset-password] updateUser failed", updErr);
       setError(updErr.message);
       setStatus("ready");
       return;
     }
-
     console.log("[reset-password] password updated successfully");
     setStatus("done");
     toast.success("Password updated. Please sign in.");
-
-    try {
-      sessionStorage.removeItem(RECOVERY_TOKENS_KEY);
-    } catch {
-      /* ignore */
-    }
-
+    // Sign the recovery session out so the customer starts fresh on /customer-login.
     await customerSupabase.auth.signOut();
-
     setTimeout(() => {
       navigate("/customer-login", { replace: true });
     }, 1200);
@@ -333,9 +188,7 @@ export default function ResetPassword() {
               <AlertCircle className="h-4 w-4" />
               Link invalid or expired
             </div>
-            <p className="text-sm text-destructive/90">
-              {error ?? "Please request a new password reset email."}
-            </p>
+            <p className="text-sm text-destructive/90">{error ?? "Please request a new password reset email."}</p>
             <Button onClick={() => navigate("/customer-login")} className="mt-4 w-full">
               Back to sign in
             </Button>
