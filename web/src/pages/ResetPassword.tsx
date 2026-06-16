@@ -23,6 +23,57 @@ export default function ResetPassword() {
   const [confirm, setConfirm] = useState("");
   const recoveryTokensRef = useRef<RecoveryTokens | null>(null);
 
+  const saveRecoveryTokens = (tokens: RecoveryTokens): void => {
+    recoveryTokensRef.current = tokens;
+    try {
+      sessionStorage.setItem(RECOVERY_TOKENS_KEY, JSON.stringify(tokens));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const getSavedRecoveryTokens = (): RecoveryTokens | null => {
+    if (recoveryTokensRef.current) return recoveryTokensRef.current;
+
+    try {
+      const raw = sessionStorage.getItem(RECOVERY_TOKENS_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<RecoveryTokens>;
+      if (parsed.access_token && parsed.refresh_token) {
+        return {
+          access_token: parsed.access_token,
+          refresh_token: parsed.refresh_token,
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+
+    return null;
+  };
+
+  const ensureRecoverySession = async (): Promise<boolean> => {
+    const { data: current } = await customerSupabase.auth.getSession();
+    if (current.session?.access_token && current.session?.refresh_token) {
+      saveRecoveryTokens({
+        access_token: current.session.access_token,
+        refresh_token: current.session.refresh_token,
+      });
+      return true;
+    }
+
+    const tokens = getSavedRecoveryTokens();
+    if (!tokens) return false;
+
+    const { data: restored, error: restoreErr } = await customerSupabase.auth.setSession(tokens);
+    if (restoreErr) {
+      console.error("[reset-password] restore recovery session failed", restoreErr);
+      return false;
+    }
+
+    return !!restored.session;
+  };
+
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setStatus("invalid");
@@ -39,15 +90,6 @@ export default function ResetPassword() {
       } else {
         setStatus("invalid");
         setError(errMsg ?? "This password reset link is invalid or has expired.");
-      }
-    };
-
-    const saveRecoveryTokens = (tokens: RecoveryTokens): void => {
-      recoveryTokensRef.current = tokens;
-      try {
-        sessionStorage.setItem(RECOVERY_TOKENS_KEY, JSON.stringify(tokens));
-      } catch {
-        /* ignore */
       }
     };
 
@@ -85,8 +127,6 @@ export default function ResetPassword() {
           return;
         }
 
-        // OTP / token_hash flow:
-        // /reset-password?token_hash=...&type=recovery
         if (tokenHash) {
           const otpType = (type ?? "recovery") as
             | "recovery"
@@ -112,18 +152,14 @@ export default function ResetPassword() {
           }
 
           if (data.session?.access_token && data.session?.refresh_token) {
-            const tokens = {
+            await customerSupabase.auth.setSession({
               access_token: data.session.access_token,
               refresh_token: data.session.refresh_token,
-            };
-
-            const { error: setErr } = await customerSupabase.auth.setSession(tokens);
-            if (setErr) {
-              finishCheck(false, setErr.message);
-              return;
-            }
-
-            saveRecoveryTokens(tokens);
+            });
+            saveRecoveryTokens({
+              access_token: data.session.access_token,
+              refresh_token: data.session.refresh_token,
+            });
           }
 
           window.history.replaceState({}, document.title, "/reset-password");
@@ -131,10 +167,8 @@ export default function ResetPassword() {
           return;
         }
 
-        // PKCE flow: ?code=...
         if (code) {
-          const { data, error: exErr } =
-            await customerSupabase.auth.exchangeCodeForSession(code);
+          const { data, error: exErr } = await customerSupabase.auth.exchangeCodeForSession(code);
 
           console.log("[reset-password] exchangeCodeForSession", {
             ok: !exErr,
@@ -158,7 +192,6 @@ export default function ResetPassword() {
           return;
         }
 
-        // Implicit flow: tokens in hash
         if (hashTokens.access_token && hashTokens.refresh_token) {
           const tokens = {
             access_token: hashTokens.access_token,
@@ -183,7 +216,6 @@ export default function ResetPassword() {
           return;
         }
 
-        // No URL tokens — check if a recovery session is already present.
         const { data } = await customerSupabase.auth.getSession();
 
         if (data.session?.access_token && data.session?.refresh_token) {
@@ -227,45 +259,6 @@ export default function ResetPassword() {
     };
   }, []);
 
-  const getSavedRecoveryTokens = (): RecoveryTokens | null => {
-    if (recoveryTokensRef.current) return recoveryTokensRef.current;
-
-    try {
-      const raw = sessionStorage.getItem(RECOVERY_TOKENS_KEY);
-      if (!raw) return null;
-
-      const parsed = JSON.parse(raw) as Partial<RecoveryTokens>;
-      if (parsed.access_token && parsed.refresh_token) {
-        return {
-          access_token: parsed.access_token,
-          refresh_token: parsed.refresh_token,
-        };
-      }
-    } catch {
-      /* ignore */
-    }
-
-    return null;
-  };
-
-  const ensureRecoverySession = async (): Promise<boolean> => {
-    const { data } = await customerSupabase.auth.getSession();
-    if (data.session) return true;
-
-    const tokens = getSavedRecoveryTokens();
-    if (!tokens) return false;
-
-    const { data: restored, error: restoreErr } =
-      await customerSupabase.auth.setSession(tokens);
-
-    if (restoreErr) {
-      console.error("[reset-password] restore recovery session failed", restoreErr);
-      return false;
-    }
-
-    return !!restored.session;
-  };
-
   const onSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
     setError(null);
@@ -285,7 +278,7 @@ export default function ResetPassword() {
     const hasSession = await ensureRecoverySession();
 
     if (!hasSession) {
-      setError("Auth session missing. Please request a new reset email and open the latest link.");
+      setError("Reset session missing. Please request a new reset email and open the latest link.");
       setStatus("ready");
       return;
     }
