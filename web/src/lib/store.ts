@@ -414,6 +414,14 @@ export const useStore = create<AppState>()((set, get) => ({
 
   /* ------------------------- bootstrap ----------------------------- */
   bootstrap: async () => {
+    if (window.location.pathname.includes("/reset-password")) {
+      set({
+        currentUserId: null,
+        hydrated: true,
+        bootstrapping: false,
+      });
+      return;
+    }
     if (!isSupabaseConfigured) {
       set({ hydrated: true });
       return;
@@ -454,8 +462,19 @@ export const useStore = create<AppState>()((set, get) => ({
         }
       }
       let resolvedUid = uid;
-
-      if (uid && !users.find((u) => u.id === uid)) {
+      if (window.location.pathname === "/reset-password") {
+        set({
+          users,
+          currentUserId: null,
+          hydrated: true,
+          bootstrapping: false,
+        });
+        return;
+      }
+      if (
+        uid &&
+        !users.find((u) => u.id === uid)
+      ) {
         console.warn("[bootstrap] deleted/inactive employee tried login");
 
         try {
@@ -1056,9 +1075,9 @@ export const useStore = create<AppState>()((set, get) => ({
         }
       );
 
-      if (!fnErr && fnData?.id) {
+      if (!fnErr && fnData?.user?.id) {
         const newU: User = {
-          id: fnData.id,
+          id: fnData.user.id,
           username: email,
           email,
           fullName: u.fullName,
