@@ -1,5 +1,5 @@
 {
-  "name": "rork-web-app",
+  "name": "ori-barakah-store",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -101,5 +101,20 @@
   },
   "overrides": {
     "axios": "1.13.2"
+  },
+  "build": {
+  "appId": "com.oribarakah.store",
+  "productName": "Ori Barakah Store",
+  "artifactName": "Ori-Barakah-Store-Setup-${version}.${ext}",
+  "win": {
+    "target": "nsis",
+    "icon": "build/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+    }
   }
 }

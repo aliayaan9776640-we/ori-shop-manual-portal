@@ -35,6 +35,8 @@ export interface ReceiptData {
 }
 
 const buildReceiptHtml = (d: ReceiptData): string => {
+  const s = useSettings.getState();
+
   const itemRows = d.items
     .map(
       (i) =>
@@ -69,10 +71,22 @@ const buildReceiptHtml = (d: ReceiptData): string => {
 <div class="noprint" style="text-align:center;margin-bottom:8px">
   <button onclick="window.print()" style="padding:8px 14px;font-weight:700;background:#0f172a;color:#fff;border:0;border-radius:6px;cursor:pointer">Print / Save as PDF</button>
 </div>
-<h2>${escape(d.shopName)}</h2>
+<div style="text-align:center;margin-bottom:6px">
+  <img src="${escape(LOGO_URL)}" style="width:55px;height:55px;object-fit:contain"/>
+</div>
+
+<h2>${escape(s.shopName || d.shopName)}</h2>
+
 <div class="muted">
+  ${s.companyAddress ? `${escape(s.companyAddress)}<br/>` : ""}
+  ${s.companyPhone ? `Tel: ${escape(s.companyPhone)}<br/>` : ""}
+  ${s.companyEmail ? `Email: ${escape(s.companyEmail)}<br/>` : ""}
+  ${s.companyRegNo ? `Reg No: ${escape(s.companyRegNo)}<br/>` : ""}
+  <br/>
+
   ${escape(new Date(d.date).toLocaleString())}<br/>
   Invoice #${escape(inv)}<br/>
+
   ${d.cashierName ? `Cashier: ${escape(d.cashierName)}<br/>` : ""}
   ${d.customerName ? `Customer: ${escape(d.customerName)}${d.customerPhone ? " · " + escape(d.customerPhone) : ""}` : ""}
 </div>
@@ -101,7 +115,7 @@ const buildReceiptHtml = (d: ReceiptData): string => {
     }
   </div>
 </div>
-<div class="center">${escape(d.footer)}</div>
+<div class="center">${escape(s.receiptFooter || d.footer)}</div>
 <script>window.onload=function(){setTimeout(function(){window.print()},250)};<\/script>
 </body></html>`;
 };
