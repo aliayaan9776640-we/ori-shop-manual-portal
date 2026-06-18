@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { customerSupabase, isSupabaseConfigured } from "@/lib/supabase";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { Lock, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Logo from "@/components/Logo";
@@ -283,7 +283,7 @@ export default function ResetPassword() {
       return;
     }
 
-    const { data: userData, error: userErr } = await customerSupabase.auth.getUser();
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
 
     if (userErr || !userData.user) {
       console.error("[reset-password] getUser failed before update", userErr);
@@ -292,7 +292,7 @@ export default function ResetPassword() {
       return;
     }
 
-    const { error: updErr } = await customerSupabase.auth.updateUser({
+    const { error: updErr } = await supabase.auth.updateUser({
       password,
     });
 
@@ -313,10 +313,10 @@ export default function ResetPassword() {
       /* ignore */
     }
 
-    await customerSupabase.auth.signOut();
+    await supabase.auth.signOut();
 
     setTimeout(() => {
-      navigate("/customer-login", { replace: true });
+      navigate("/login", { replace: true });
     }, 1200);
   };
 
