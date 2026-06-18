@@ -53,7 +53,7 @@ export default function ResetPassword() {
   };
 
   const ensureRecoverySession = async (): Promise<boolean> => {
-    const { data: current } = await customerSupabase.auth.getSession();
+    const { data: current } = await supabase.auth.getSession();
     if (current.session?.access_token && current.session?.refresh_token) {
       saveRecoveryTokens({
         access_token: current.session.access_token,
@@ -65,7 +65,7 @@ export default function ResetPassword() {
     const tokens = getSavedRecoveryTokens();
     if (!tokens) return false;
 
-    const { data: restored, error: restoreErr } = await customerSupabase.auth.setSession(tokens);
+    const { data: restored, error: restoreErr } = await supabase.auth.setSession(tokens);
     if (restoreErr) {
       console.error("[reset-password] restore recovery session failed", restoreErr);
       return false;
@@ -135,7 +135,7 @@ export default function ResetPassword() {
             | "signup"
             | "invite";
 
-          const { data, error: otpErr } = await customerSupabase.auth.verifyOtp({
+          const { data, error: otpErr } = await supabase.auth.verifyOtp({
             type: otpType,
             token_hash: tokenHash,
           });
@@ -152,7 +152,7 @@ export default function ResetPassword() {
           }
 
           if (data.session?.access_token && data.session?.refresh_token) {
-            await customerSupabase.auth.setSession({
+            await supabase.auth.setSession({
               access_token: data.session.access_token,
               refresh_token: data.session.refresh_token,
             });
@@ -168,7 +168,7 @@ export default function ResetPassword() {
         }
 
         if (code) {
-          const { data, error: exErr } = await customerSupabase.auth.exchangeCodeForSession(code);
+          const { data, error: exErr } = await supabase.auth.exchangeCodeForSession(code);
 
           console.log("[reset-password] exchangeCodeForSession", {
             ok: !exErr,
@@ -198,7 +198,7 @@ export default function ResetPassword() {
             refresh_token: hashTokens.refresh_token,
           };
 
-          const { data, error: setErr } = await customerSupabase.auth.setSession(tokens);
+          const { data, error: setErr } = await supabase.auth.setSession(tokens);
 
           console.log("[reset-password] setSession from hash", {
             ok: !setErr,
@@ -216,7 +216,7 @@ export default function ResetPassword() {
           return;
         }
 
-        const { data } = await customerSupabase.auth.getSession();
+        const { data } = await supabase.auth.getSession();
 
         if (data.session?.access_token && data.session?.refresh_token) {
           saveRecoveryTokens({
@@ -238,7 +238,7 @@ export default function ResetPassword() {
 
     void init();
 
-    const sub = customerSupabase.auth.onAuthStateChange((event, session) => {
+    const sub = supabase.auth.onAuthStateChange((event, session) => {
       console.log("[reset-password] auth event", event, session?.user?.email);
 
       if (session?.access_token && session?.refresh_token) {
