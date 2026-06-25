@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PageHeader from "@/components/PageHeader";
 import { useStore, landedCostPerPiece, landedCostTotal } from "@/lib/store";
 import { useCurrentUser } from "@/lib/store";
@@ -27,7 +27,7 @@ import {
 } from "@/components/ui/dialog";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { computeProfitParts, formatPct } from "@/lib/profitCalc";
-import { useDropdownGroup } from "@/lib/dropdowns";
+import { useDropdownGroup, useDropdowns } from "@/lib/dropdowns";
 import NumInput from "@/components/NumInput";
 import FileUpload from "@/components/FileUpload";
 import {
@@ -185,7 +185,13 @@ export default function Inventory() {
   const tax = useTaxSettings();
   const unitOptions = useDropdownGroup("unit_type");
   const categoryOptions = useDropdownGroup("product_category");
+  const sizeOptions = useDropdownGroup("product_size" as any);
   const gstOptions = useDropdownGroup("gst_applicable");
+  const loadDropdowns = useDropdowns((s) => s.load);
+
+  useEffect(() => {
+    void loadDropdowns();
+  }, [loadDropdowns]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -415,11 +421,10 @@ export default function Inventory() {
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`rounded-lg border px-3 py-2 text-xs font-medium capitalize transition ${
-                filter === f
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-card hover:bg-secondary"
-              }`}
+              className={`rounded-lg border px-3 py-2 text-xs font-medium capitalize transition ${filter === f
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-card hover:bg-secondary"
+                }`}
             >
               {f === "all" ? "All" : f === "low" ? "Low stock" : "Out of stock"}
             </button>
@@ -532,13 +537,12 @@ export default function Inventory() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div
-                        className={`font-semibold ${
-                          isOut
-                            ? "text-rose-600"
-                            : isLow
-                              ? "text-amber-600"
-                              : ""
-                        }`}
+                        className={`font-semibold ${isOut
+                          ? "text-rose-600"
+                          : isLow
+                            ? "text-amber-600"
+                            : ""
+                          }`}
                       >
                         {ppcRow > 1 ? (
                           <span>
@@ -578,16 +582,14 @@ export default function Inventory() {
                       {ppcRow > 1 ? formatCurrency(sellPerCase) : "—"}
                     </td>
                     <td
-                      className={`px-4 py-3 text-right ${
-                        profitPiece >= 0 ? "text-emerald-600" : "text-rose-600"
-                      }`}
+                      className={`px-4 py-3 text-right ${profitPiece >= 0 ? "text-emerald-600" : "text-rose-600"
+                        }`}
                     >
                       {formatCurrency(profitPiece)}
                     </td>
                     <td
-                      className={`px-4 py-3 text-right ${
-                        profitCase >= 0 ? "text-emerald-600" : "text-rose-600"
-                      }`}
+                      className={`px-4 py-3 text-right ${profitCase >= 0 ? "text-emerald-600" : "text-rose-600"
+                        }`}
                     >
                       {ppcRow > 1 ? formatCurrency(profitCase) : "—"}
                     </td>
@@ -596,13 +598,12 @@ export default function Inventory() {
                       title="Profit ÷ selling price"
                     >
                       <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                          marginActual >= 20
-                            ? "bg-emerald-100 text-emerald-700"
-                            : marginActual >= 10
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-rose-100 text-rose-700"
-                        }`}
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${marginActual >= 20
+                          ? "bg-emerald-100 text-emerald-700"
+                          : marginActual >= 10
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-rose-100 text-rose-700"
+                          }`}
                       >
                         {formatPct(marginActual)}
                       </span>
@@ -630,13 +631,13 @@ export default function Inventory() {
                           );
                         const date = exp.nextExpiry
                           ? new Date(exp.nextExpiry).toLocaleDateString(
-                              undefined,
-                              {
-                                day: "2-digit",
-                                month: "short",
-                                year: "2-digit",
-                              },
-                            )
+                            undefined,
+                            {
+                              day: "2-digit",
+                              month: "short",
+                              year: "2-digit",
+                            },
+                          )
                           : "";
                         const cls =
                           exp.status === "expired"
@@ -830,27 +831,50 @@ export default function Inventory() {
                 }
                 className={inputCls}
               >
-                <option value="piece">Piece</option>
-                <option value="kg">KG</option>
-                <option value="g">Gram</option>
-                <option value="box">Box</option>
-                <option value="case">Case</option>
-                <option value="packet">Packet</option>
-                <option value="bottle">Bottle</option>
-                <option value="tin">Tin</option>
-                <option value="bag">Bag</option>
-                {!unitOptions.some((u) => u.value === form.unit) && (
-                  <option value={form.unit}>{form.unit} (legacy)</option>
-                )}
+                {(unitOptions.length > 0
+                  ? unitOptions
+                  : [
+                    { value: "piece", label: "Piece" },
+                    { value: "kg", label: "KG" },
+                    { value: "g", label: "Gram" },
+                    { value: "box", label: "Box" },
+                    { value: "case", label: "Case" },
+                    { value: "packet", label: "Packet" },
+                    { value: "bottle", label: "Bottle" },
+                    { value: "tin", label: "Tin" },
+                    { value: "bag", label: "Bag" },
+                  ]
+                ).map((u) => (
+                  <option key={u.value} value={u.value}>
+                    {u.label}
+                  </option>
+                ))}
+
+                {form.unit &&
+                  !unitOptions.some((u) => u.value === form.unit) && (
+                    <option value={form.unit}>{form.unit} (legacy)</option>
+                  )}
               </select>
             </Field>
             <Field label="Size / Option">
-              <input
+              <select
                 value={form.size || ""}
                 onChange={(e) => setForm({ ...form, size: e.target.value })}
-                placeholder="Ex: 1KG, 500ML, XL, Large"
                 className={inputCls}
-              />
+              >
+                <option value="">— Select size —</option>
+
+                {sizeOptions.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+
+                {form.size &&
+                  !sizeOptions.some((s) => s.value === form.size) && (
+                    <option value={form.size}>{form.size} (legacy)</option>
+                  )}
+              </select>
             </Field>
             <Field label={`Purchase price per ${bulkLabel}`}>
               <NumInput
@@ -1068,9 +1092,9 @@ export default function Inventory() {
                 {(gstOptions.length > 0
                   ? gstOptions
                   : [
-                      { id: "gst-yes", value: "yes", label: "GST item" },
-                      { id: "gst-no", value: "no", label: "Non-GST item" },
-                    ]
+                    { id: "gst-yes", value: "yes", label: "GST item" },
+                    { id: "gst-no", value: "no", label: "Non-GST item" },
+                  ]
                 ).map((opt) => {
                   const isYes = opt.value === "yes" || opt.value === "true";
                   const selected = form.gstApplicable === isYes;
@@ -1079,13 +1103,12 @@ export default function Inventory() {
                       key={opt.id}
                       type="button"
                       onClick={() => setForm({ ...form, gstApplicable: isYes })}
-                      className={`rounded-lg border px-4 py-2 text-xs font-bold transition ${
-                        selected
-                          ? isYes
-                            ? "border-emerald-600 bg-emerald-600 text-white"
-                            : "border-slate-700 bg-slate-700 text-white"
-                          : "border-border bg-card text-muted-foreground hover:bg-secondary"
-                      }`}
+                      className={`rounded-lg border px-4 py-2 text-xs font-bold transition ${selected
+                        ? isYes
+                          ? "border-emerald-600 bg-emerald-600 text-white"
+                          : "border-slate-700 bg-slate-700 text-white"
+                        : "border-border bg-card text-muted-foreground hover:bg-secondary"
+                        }`}
                     >
                       {opt.label}
                     </button>
@@ -1568,10 +1591,10 @@ function StockHistoryDialog({
                 value={
                   lastAdded
                     ? new Date(lastAdded.date).toLocaleDateString(undefined, {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                      })
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                    })
                     : "—"
                 }
               />
@@ -1651,21 +1674,19 @@ function StockHistoryDialog({
                           </td>
                           <td className="px-3 py-2">
                             <span
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                                isIn
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : t.type === "damage"
-                                    ? "bg-rose-100 text-rose-700"
-                                    : "bg-slate-200 text-slate-700"
-                              }`}
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${isIn
+                                ? "bg-emerald-100 text-emerald-700"
+                                : t.type === "damage"
+                                  ? "bg-rose-100 text-rose-700"
+                                  : "bg-slate-200 text-slate-700"
+                                }`}
                             >
                               {t.type}
                             </span>
                           </td>
                           <td
-                            className={`px-3 py-2 text-right font-semibold ${
-                              isIn ? "text-emerald-600" : "text-rose-600"
-                            }`}
+                            className={`px-3 py-2 text-right font-semibold ${isIn ? "text-emerald-600" : "text-rose-600"
+                              }`}
                           >
                             {isIn ? "+" : "−"}
                             {formatTotalBase(t.qty, product.unit)}
@@ -1794,17 +1815,16 @@ function ProductBatchesPanel({
                   </td>
                   <td className="px-3 py-2">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                        empty
-                          ? "bg-slate-200 text-slate-600"
-                          : isExpired
-                            ? "bg-rose-100 text-rose-700"
-                            : isNear
-                              ? "bg-amber-100 text-amber-700"
-                              : b.expiryDate
-                                ? "bg-emerald-100 text-emerald-700"
-                                : "bg-slate-100 text-slate-600"
-                      }`}
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${empty
+                        ? "bg-slate-200 text-slate-600"
+                        : isExpired
+                          ? "bg-rose-100 text-rose-700"
+                          : isNear
+                            ? "bg-amber-100 text-amber-700"
+                            : b.expiryDate
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-slate-100 text-slate-600"
+                        }`}
                     >
                       {empty
                         ? "Empty"

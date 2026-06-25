@@ -127,6 +127,7 @@ interface ProductRow {
   name: string;
   barcode: string | null;
   category: string | null;
+  size: string | null;
   supplier_id: string | null;
   purchase_price: number;
   selling_price: number;
@@ -154,6 +155,7 @@ export const rowToProduct = (r: ProductRow): Product => ({
   name: r.name,
   barcode: r.barcode ?? "",
   category: r.category ?? "",
+  size: r.size ?? undefined,
   supplierId: r.supplier_id ?? "",
   purchasePrice: Number(r.purchase_price),
   sellingPrice: Number(r.selling_price),
@@ -175,11 +177,14 @@ export const rowToProduct = (r: ProductRow): Product => ({
   isOffer: r.is_offer === true,
   discountPct: r.discount_pct != null ? Number(r.discount_pct) : 0,
   offerLabel: r.offer_label ?? undefined,
-});
-const productToRow = (p: Partial<Product>): Partial<ProductRow> => ({
+} as Product & { size?: string });
+const productToRow = (
+  p: Partial<Product> & { size?: string }
+): Partial<ProductRow> => ({
   name: p.name,
   barcode: p.barcode || null,
   category: p.category || null,
+  size: p.size || null,
   supplier_id: p.supplierId || null,
   purchase_price: p.purchasePrice,
   selling_price: p.sellingPrice,
