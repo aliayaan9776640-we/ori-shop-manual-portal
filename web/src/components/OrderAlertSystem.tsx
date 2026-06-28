@@ -18,7 +18,7 @@ export default function OrderAlertSystem() {
   const [lastChecked, setLastChecked] = useState<string>("");
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const intervalRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
+  const intervalRef = useRef<number | null>(null);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -26,7 +26,7 @@ export default function OrderAlertSystem() {
   const hasPending = counts.online > 0 || counts.preorder > 0;
 
   const stopSoundLoop = () => {
-    if (intervalRef.current) {
+    if (intervalRef.current !== null) {
       window.clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
@@ -36,21 +36,25 @@ export default function OrderAlertSystem() {
     if (muted) return;
 
     try {
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.volume = 0.9;
-        await audioRef.current.play();
-        setAudioReady(true);
-        return;
+      if (!audioRef.current) {
+        audioRef.current = new Audio(ALERT_SOUND_PATH);
       }
+
+      audioRef.current.currentTime = 0;
+      audioRef.current.volume = 0.9;
+      await audioRef.current.play();
+      setAudioReady(true);
+      return;
     } catch {
       setAudioReady(false);
     }
 
-    // Browser fallback beep if MP3 cannot play
     try {
       const AudioCtx =
-        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
+
       const ctx = new AudioCtx();
       const oscillator = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -65,12 +69,12 @@ export default function OrderAlertSystem() {
       oscillator.start();
       oscillator.stop(ctx.currentTime + 0.35);
     } catch {
-      // ignore
+      // Ignore browser audio errors.
     }
   };
 
   const startSoundLoop = () => {
-    if (muted || intervalRef.current) return;
+    if (muted || intervalRef.current !== null) return;
 
     void playSound();
 
@@ -195,6 +199,7 @@ export default function OrderAlertSystem() {
       window.removeEventListener("keydown", enableAudio);
       stopSoundLoop();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -234,7 +239,6 @@ export default function OrderAlertSystem() {
       )
       .subscribe();
 
-    // Polling fallback. This works even if Supabase realtime is not enabled.
     const refreshTimer = window.setInterval(() => {
       void loadCounts();
     }, 5000);
@@ -243,6 +247,7 @@ export default function OrderAlertSystem() {
       window.clearInterval(refreshTimer);
       void supabase.removeChannel(channel);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -260,6 +265,7 @@ export default function OrderAlertSystem() {
     } else {
       stopSoundLoop();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [counts.online, counts.preorder, muted, location.pathname]);
 
   if (!hasPending) return null;
@@ -288,7 +294,11 @@ export default function OrderAlertSystem() {
             className="rounded-full bg-white/20 p-1.5 hover:bg-white/30"
             title={muted ? "Unmute" : "Mute"}
           >
-            {muted ? <BellOff className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+            {muted ? (
+              <BellOff className="h-4 w-4" />
+            ) : (
+              <Bell className="h-4 w-4" />
+            )}
           </button>
         </div>
       </div>
@@ -309,7 +319,7 @@ export default function OrderAlertSystem() {
             type="button"
             onClick={() => {
               stopSoundLoop();
-             void navigate("/online-orders");
+              navigate("/online-orders");
             }}
             className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left hover:bg-orange-50"
           >
@@ -329,7 +339,7 @@ export default function OrderAlertSystem() {
             type="button"
             onClick={() => {
               stopSoundLoop();
-              void navigate("/preorder-admin");
+              navigate("/preorder-admin");
             }}
             className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left hover:bg-emerald-50"
           >
