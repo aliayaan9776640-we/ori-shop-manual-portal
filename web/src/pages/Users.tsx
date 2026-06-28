@@ -64,6 +64,7 @@ export default function Users() {
   const [editing, setEditing] = useState<User | null>(null);
   const [form, setForm] = useState<FormState>(blank);
   const [submitting, setSubmitting] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
 
   const submit = async (): Promise<void> => {
     if (!form.email.trim() || !form.fullName.trim()) {
@@ -95,6 +96,7 @@ export default function Users() {
         fullName: form.fullName,
         role: form.role,
         active: form.active,
+        isPurchasingStaff: form.isPurchasingStaff,
       });
       // After creating, persist the purchasing-staff flag if set.
       if (form.isPurchasingStaff && res.ok) {
@@ -128,21 +130,30 @@ export default function Users() {
         title="Users & Activity"
         description="Manage staff accounts, roles, and review activity log."
         actions={
-          <Button
-            onClick={() => {
-              setEditing(null);
-              setForm(blank);
-              setOpen(true);
-            }}
-            className="gap-2"
-          >
-            <Plus className="h-4 w-4" /> Add User
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowActivity((v) => !v)}
+            >
+              {showActivity ? "Hide Recent Activity" : "Recent Activity"}
+            </Button>
+
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setForm(blank);
+                setOpen(true);
+              }}
+              className="gap-2"
+            >
+              <Plus className="h-4 w-4" /> Add User
+            </Button>
+          </div>
         }
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <div className="grid grid-cols-1 gap-6">
+        <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-secondary/60 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
@@ -150,7 +161,9 @@ export default function Users() {
                 <th className="px-4 py-3 text-left">Username</th>
                 <th className="px-4 py-3 text-left">Role</th>
                 <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <th className="sticky right-0 z-10 bg-secondary/60 px-4 py-3 text-right">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -180,19 +193,17 @@ export default function Users() {
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center gap-1.5 text-xs font-medium ${
-                          u.active ? "text-success" : "text-muted-foreground"
-                        }`}
+                        className={`inline-flex items-center gap-1.5 text-xs font-medium ${u.active ? "text-success" : "text-muted-foreground"
+                          }`}
                       >
                         <span
-                          className={`h-2 w-2 rounded-full ${
-                            u.active ? "bg-success" : "bg-muted-foreground/50"
-                          }`}
+                          className={`h-2 w-2 rounded-full ${u.active ? "bg-success" : "bg-muted-foreground/50"
+                            }`}
                         />
                         {u.active ? "Active" : "Deactivated"}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="sticky right-0 z-10 bg-card px-4 py-3 text-right shadow-[-8px_0_12px_-12px_rgba(0,0,0,0.35)]">
                       <div className="flex justify-end gap-1">
                         <button
                           onClick={() => {
@@ -288,36 +299,38 @@ export default function Users() {
           </table>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Recent activity
-          </h3>
-          <div className="max-h-[600px] space-y-3 overflow-y-auto scrollbar-thin">
-            {logs.length === 0 && (
-              <p className="text-sm text-muted-foreground">No activity yet.</p>
-            )}
-            {logs.map((l) => (
-              <div
-                key={l.id}
-                className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs"
-              >
-                <div className="flex justify-between gap-2">
-                  <span className="font-mono text-[10px] uppercase tracking-wider text-primary">
-                    {l.action}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {new Date(l.date).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
+        {showActivity && (
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Recent activity
+            </h3>
+            <div className="max-h-[600px] space-y-3 overflow-y-auto scrollbar-thin">
+              {logs.length === 0 && (
+                <p className="text-sm text-muted-foreground">No activity yet.</p>
+              )}
+              {logs.map((l) => (
+                <div
+                  key={l.id}
+                  className="rounded-lg border border-border bg-secondary/30 px-3 py-2 text-xs"
+                >
+                  <div className="flex justify-between gap-2">
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-primary">
+                      {l.action}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {new Date(l.date).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-foreground">{l.detail}</div>
+                  <div className="text-[11px] text-muted-foreground">{l.userName}</div>
                 </div>
-                <div className="mt-1 text-foreground">{l.detail}</div>
-                <div className="text-[11px] text-muted-foreground">{l.userName}</div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

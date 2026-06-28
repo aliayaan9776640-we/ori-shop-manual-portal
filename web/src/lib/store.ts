@@ -441,7 +441,6 @@ export const useStore = create<AppState>()((set, get) => ({
       const { data: profiles, error: pErr } = await supabase
         .from("profiles")
         .select("*")
-        .eq("active", true)
         .order("created_at", { ascending: true });
       logErr("profiles.select", pErr);
       const users: User[] = (profiles as ProfileRow[] | null)?.map(rowToUser) ?? [];
@@ -969,14 +968,23 @@ export const useStore = create<AppState>()((set, get) => ({
       const isMaster =
         (authUser.email || "").trim().toLowerCase() === masterEmail;
 
+      if (!isMaster) {
+        await supabase.auth.signOut();
+        set({ currentUserId: null, hydrated: true });
+        return {
+          ok: false,
+          error: "This staff account was deleted. Contact an admin.",
+        };
+      }
+
       const { data: repairedProfile, error: repairErr } = await supabase
         .from("profiles")
         .upsert(
           {
             id: authUser.id,
             email: authUser.email || masterEmail,
-            full_name: isMaster ? "ORI Brothers Master Admin" : authUser.email || "Staff User",
-            role: isMaster ? "admin" : "cashier",
+            full_name: "ORI Brothers Master Admin",
+            role: "admin",
             active: true,
           },
           { onConflict: "id" }
@@ -989,7 +997,7 @@ export const useStore = create<AppState>()((set, get) => ({
         set({ currentUserId: null });
         return {
           ok: false,
-          error: "Could not repair staff profile. Please try again.",
+          error: "Could not repair master admin profile. Please try again.",
         };
       }
 
@@ -1076,6 +1084,7 @@ export const useStore = create<AppState>()((set, get) => ({
             fullName: u.fullName,
             role: u.role,
             active: u.active,
+            isPurchasingStaff: u.isPurchasingStaff === true,
           },
         }
       );
@@ -1089,6 +1098,7 @@ export const useStore = create<AppState>()((set, get) => ({
           role: u.role,
           active: u.active,
           createdAt: new Date().toISOString(),
+          isPurchasingStaff: u.isPurchasingStaff === true,
         };
         set({ users: [...get().users.filter((x) => x.id !== newU.id), newU] });
         get().log("user.create", `Created confirmed user ${email} (${u.role})`);
@@ -1183,6 +1193,7 @@ export const useStore = create<AppState>()((set, get) => ({
       role: u.role,
       active: u.active,
       createdAt: new Date().toISOString(),
+      isPurchasingStaff: u.isPurchasingStaff === true,
     };
     set({ users: [...get().users, newU] });
     get().log("user.create", `Created user ${email} (${u.role})`);
@@ -1228,25 +1239,39 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   deleteUser: (uid) => {
-    set({ users: get().users.filter((u) => u.id !== uid) });
+    const target = get().users.find((u) => u.id === uid);
+
+    if (target?.email?.trim().toLowerCase() === "sales@oribrothers.com") {
+      toast.error("Master admin cannot be deleted");
+      return;
+    }
+
+    if (uid === get().currentUserId) {
+      toast.error("Cannot delete yourself");
+      return;
+    }
 
     if (isSupabaseConfigured) {
       supabase
-        .from("profiles")
-        .update({ active: false })
-        .eq("id", uid)
+        .rpc("admin_delete_staff_profile", { target_user_id: uid })
         .then(({ error }) => {
           if (error) {
-            notifyWriteError("profiles.deactivate", error);
-          } else {
-            get().log("user.deactivate", `Deactivated employee user ${uid}`);
+            notifyWriteError("staff.delete", error);
+            return;
           }
+
+          set({ users: get().users.filter((u) => u.id !== uid) });
+          get().log(
+            "user.delete",
+            `Permanently deleted staff user ${target?.email ?? uid}`
+          );
+          toast.success("Staff user deleted permanently");
         });
     } else {
+      set({ users: get().users.filter((u) => u.id !== uid) });
       get().log("user.delete", `Deleted user ${uid}`);
     }
   },
-
   /* ------------------------ products ------------------------------- */
   addProduct: (p, addOpts) => {
     // De-duplicate: if a product with the same barcode (non-empty) or

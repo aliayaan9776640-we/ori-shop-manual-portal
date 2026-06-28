@@ -382,7 +382,7 @@ export default function Inventory() {
   const suggestedPerPiece = breakdown.baseSelling / ppc;
 
   return (
-    <>
+    <div className="relative left-1/2 w-[calc(100vw-300px)] max-w-none -translate-x-1/2">
       <PageHeader
         title="Inventory"
         description="Manage products, stock levels, and pricing."
@@ -432,10 +432,11 @@ export default function Inventory() {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/60 text-xs uppercase tracking-wider text-muted-foreground">
+      <div className="relative left-1/2 w-[calc(100vw-240px)] -translate-x-1/2 rounded-2xl border border-border bg-card shadow-sm">
+        <div className="h-[calc(100vh-245px)] min-h-[420px] w-full overflow-auto">
+          <table className="w-full table-fixed text-sm">
+
+            <thead className="sticky top-0 z-20 bg-secondary text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 text-left">Product</th>
                 <th className="px-4 py-3 text-left">Category</th>
@@ -857,25 +858,14 @@ export default function Inventory() {
               </select>
             </Field>
             <Field label="Size / Option">
-              <select
+              <input
                 value={form.size || ""}
                 onChange={(e) => setForm({ ...form, size: e.target.value })}
+                placeholder="Type size / option, example: 1kg, 500g, Large, Small, Box"
                 className={inputCls}
-              >
-                <option value="">— Select size —</option>
-
-                {sizeOptions.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-
-                {form.size &&
-                  !sizeOptions.some((s) => s.value === form.size) && (
-                    <option value={form.size}>{form.size} (legacy)</option>
-                  )}
-              </select>
+              />
             </Field>
+
             <Field label={`Purchase price per ${bulkLabel}`}>
               <NumInput
                 value={form.purchasePrice}
@@ -883,26 +873,22 @@ export default function Inventory() {
                 className={inputCls}
               />
               <div className="mt-1 text-[10px] text-muted-foreground">
-                = {baseLabel} price × {ppc} {baseLabel}/{bulkLabel}
+                Enter full {bulkLabel} purchase price.
               </div>
             </Field>
-            <Field label={`Purchase price per ${baseLabel}`}>
-              <NumInput
-                value={ppc > 0 ? form.purchasePrice / ppc : 0}
-                onChange={(n) =>
-                  setForm({
-                    ...form,
-                    purchasePrice: +(
-                      n * Math.max(1, form.piecesPerCase || 1)
-                    ).toFixed(4),
-                  })
-                }
-                className={inputCls}
+
+            <Field label={`Purchase price per ${baseLabel} — auto`}>
+              <input
+                type="text"
+                readOnly
+                value={formatCurrency(form.purchasePrice / ppc)}
+                className={`${inputCls} bg-muted/40 font-semibold`}
               />
               <div className="mt-1 text-[10px] text-muted-foreground">
-                Auto: {ppc > 0 ? formatCurrency(form.purchasePrice / ppc) : "—"}
+                = {bulkLabel} price ÷ {ppc} {baseLabel}/{bulkLabel}
               </div>
             </Field>
+
             <Field label="Boat fee / transport">
               <NumInput
                 value={form.boatFee}
@@ -1224,10 +1210,10 @@ export default function Inventory() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* Tax settings dialog */}
-      <Dialog open={taxOpen} onOpenChange={setTaxOpen}>
+      < Dialog open={taxOpen} onOpenChange={setTaxOpen} >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Tax & Charge Settings</DialogTitle>
@@ -1270,12 +1256,13 @@ export default function Inventory() {
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog >
 
       {/* Stock history / details dialog */}
-      <StockHistoryDialog
+      < StockHistoryDialog
         product={historyFor}
-        onClose={() => setHistoryFor(null)}
+        onClose={() => setHistoryFor(null)
+        }
         sales={sales}
         inventoryTx={inventoryTx}
         batches={batches}
@@ -1283,7 +1270,7 @@ export default function Inventory() {
       />
 
       {/* Stock adjust dialog */}
-      <Dialog open={!!stockOpen} onOpenChange={(o) => !o && setStockOpen(null)}>
+      < Dialog open={!!stockOpen} onOpenChange={(o) => !o && setStockOpen(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
@@ -1454,8 +1441,8 @@ export default function Inventory() {
             <Button onClick={submitStock}>Confirm</Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>
-    </>
+      </Dialog >
+    </div>
   );
 }
 
@@ -1649,7 +1636,7 @@ function StockHistoryDialog({
                 Stock history ({txs.length})
               </div>
               <div className="max-h-72 overflow-y-auto rounded-xl border border-border">
-                <table className="w-full text-sm">
+                <table className="min-w-[1450px] w-full text-sm">
                   <thead className="bg-secondary/60 text-xs uppercase tracking-wider text-muted-foreground">
                     <tr>
                       <th className="px-3 py-2 text-left">Date</th>
