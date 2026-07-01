@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, BellOff, ShoppingBag, PackageCheck, Volume2 } from "lucide-react";
+import {
+  Bell,
+  BellOff,
+  Minus,
+  PackageCheck,
+  ShoppingBag,
+  Volume2,
+} from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { useCurrentUser } from "@/lib/store";
 
 type Counts = {
   online: number;
@@ -12,18 +20,36 @@ type Counts = {
 const ALERT_SOUND_PATH = "/sounds/order-alert.mp3";
 
 export default function OrderAlertSystem() {
+  const me = useCurrentUser();
+  const location = useLocation();
+  const navigate = useNavigate();
+
   const [counts, setCounts] = useState<Counts>({ online: 0, preorder: 0 });
   const [muted, setMuted] = useState(false);
   const [audioReady, setAudioReady] = useState(false);
   const [lastChecked, setLastChecked] = useState<string>("");
+  const [minimized, setMinimized] = useState(true);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const intervalRef = useRef<number | null>(null);
 
-  const location = useLocation();
-  const navigate = useNavigate();
+  const totalPending = counts.online + counts.preorder;
+  const hasPending = totalPending > 0;
 
-  const hasPending = counts.online > 0 || counts.preorder > 0;
+  // Staff only. Customers/public pages will not see or hear this alert.
+  const isStaffAllowed =
+    me?.active === true && (me.role === "cashier" || me.role === "admin");
+
+  const isCustomerOrPublicPage =
+    location.pathname === "/" ||
+    location.pathname.startsWith("/store") ||
+    location.pathname.startsWith("/pre-orders") ||
+    location.pathname.startsWith("/customer-login") ||
+    location.pathname.startsWith("/profile") ||
+    location.pathname.startsWith("/customer-profile") ||
+    location.pathname.startsWith("/payment-success") ||
+    location.pathname.startsWith("/payment-failed") ||
+    location.pathname.startsWith("/bill/");
 
   const stopSoundLoop = () => {
     if (intervalRef.current !== null) {
@@ -33,7 +59,7 @@ export default function OrderAlertSystem() {
   };
 
   const playSound = async () => {
-    if (muted) return;
+    if (muted || !isStaffAllowed || isCustomerOrPublicPage) return;
 
     try {
       if (!audioRef.current) {
@@ -49,6 +75,7 @@ export default function OrderAlertSystem() {
       setAudioReady(false);
     }
 
+    // Browser fallback beep if MP3 cannot play
     try {
       const AudioCtx =
         window.AudioContext ||
@@ -69,21 +96,32 @@ export default function OrderAlertSystem() {
       oscillator.start();
       oscillator.stop(ctx.currentTime + 0.35);
     } catch {
-      // Ignore browser audio errors.
+      // ignore
     }
   };
 
   const startSoundLoop = () => {
-    if (muted || intervalRef.current !== null) return;
+    if (
+      muted ||
+      intervalRef.current !== null ||
+      !isStaffAllowed ||
+      isCustomerOrPublicPage
+    ) {
+      return;
+    }
 
     void playSound();
 
-    intervalRef.current = window.setInterval(() => {
-      void playSound();
-    }, 7000);
+    intervalRef.current = Number(
+      window.setInterval(() => {
+        void playSound();
+      }, 7000)
+    );
   };
 
   const unlockAudio = async () => {
+    if (!isStaffAllowed || isCustomerOrPublicPage) return;
+
     try {
       if (!audioRef.current) {
         audioRef.current = new Audio(ALERT_SOUND_PATH);
@@ -127,7 +165,7 @@ export default function OrderAlertSystem() {
   };
 
   const countPreOrders = async (): Promise<number> => {
-    const tables = ["preorder_orders", "pre_orders", "pre_orders_orders"];
+    const tables = ["preorder_orders", "pre_orders"];
 
     for (const table of tables) {
       const exactPending = await supabase
@@ -148,15 +186,6 @@ export default function OrderAlertSystem() {
         return orderPending.count ?? 0;
       }
 
-      const trackingPending = await supabase
-        .from(table)
-        .select("id", { count: "exact", head: true })
-        .eq("tracking_status", "pending");
-
-      if (!trackingPending.error) {
-        return trackingPending.count ?? 0;
-      }
-
       const statusPending = await supabase
         .from(table)
         .select("id", { count: "exact", head: true })
@@ -171,7 +200,9 @@ export default function OrderAlertSystem() {
   };
 
   const loadCounts = async () => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || !isStaffAllowed || isCustomerOrPublicPage) {
+      return;
+    }
 
     const [online, preorder] = await Promise.all([
       countOnlineOrders(),
@@ -183,6 +214,11 @@ export default function OrderAlertSystem() {
   };
 
   useEffect(() => {
+    if (!isStaffAllowed || isCustomerOrPublicPage) {
+      stopSoundLoop();
+      return;
+    }
+
     audioRef.current = new Audio(ALERT_SOUND_PATH);
 
     const enableAudio = () => {
@@ -199,16 +235,18 @@ export default function OrderAlertSystem() {
       window.removeEventListener("keydown", enableAudio);
       stopSoundLoop();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isStaffAllowed, isCustomerOrPublicPage]);
 
   useEffect(() => {
+    if (!isSupabaseConfigured || !isStaffAllowed || isCustomerOrPublicPage) {
+      stopSoundLoop();
+      return;
+    }
+
     void loadCounts();
 
-    if (!isSupabaseConfigured) return;
-
     const channel = supabase
-      .channel("order-alerts-all-tables")
+      .channel("staff-order-alerts")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "online_orders" },
@@ -216,6 +254,7 @@ export default function OrderAlertSystem() {
           void loadCounts();
 
           if (payload.eventType === "INSERT") {
+            setMinimized(false);
             toast.success("New Online Order Received", {
               description: "Open Online Orders to attend.",
             });
@@ -230,6 +269,7 @@ export default function OrderAlertSystem() {
           void loadCounts();
 
           if (payload.eventType === "INSERT") {
+            setMinimized(false);
             toast.success("New Pre-Order Received", {
               description: "Open Pre-Order Admin to attend.",
             });
@@ -246,13 +286,20 @@ export default function OrderAlertSystem() {
     return () => {
       window.clearInterval(refreshTimer);
       void supabase.removeChannel(channel);
+      stopSoundLoop();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isStaffAllowed, isCustomerOrPublicPage]);
 
   useEffect(() => {
+    if (!isStaffAllowed || isCustomerOrPublicPage) {
+      stopSoundLoop();
+      return;
+    }
+
     const onOnlineOrdersPage = location.pathname.includes("online-orders");
-    const onPreorderPage = location.pathname.includes("preorder-admin");
+    const onPreorderPage =
+      location.pathname.includes("preorder-admin") ||
+      location.pathname.includes("pre-order-admin");
 
     if (onOnlineOrdersPage || onPreorderPage) {
       stopSoundLoop();
@@ -265,13 +312,37 @@ export default function OrderAlertSystem() {
     } else {
       stopSoundLoop();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [counts.online, counts.preorder, muted, location.pathname]);
+  }, [
+    counts.online,
+    counts.preorder,
+    muted,
+    location.pathname,
+    isStaffAllowed,
+    isCustomerOrPublicPage,
+  ]);
 
-  if (!hasPending) return null;
+  if (!isStaffAllowed || isCustomerOrPublicPage || !hasPending) {
+    return null;
+  }
+
+  if (minimized) {
+    return (
+      <button
+        type="button"
+        onClick={() => setMinimized(false)}
+        className="fixed right-24 top-24 z-[9999] flex h-12 w-12 items-center justify-center rounded-full bg-[#526326] text-white shadow-2xl ring-2 ring-white hover:opacity-90"
+        title="Open order alerts"
+      >
+        <Bell className="h-5 w-5 animate-pulse" />
+        <span className="absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-extrabold text-white">
+          {totalPending}
+        </span>
+      </button>
+    );
+  }
 
   return (
-    <div className="fixed bottom-5 right-5 z-[9999] w-[340px] overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-2xl">
+    <div className="fixed right-5 top-24 z-[9999] w-[340px] overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-2xl">
       <div className="flex items-center justify-between bg-gradient-to-r from-emerald-700 to-orange-500 px-4 py-3 text-white">
         <div className="flex items-center gap-2 text-sm font-extrabold">
           <Bell className="h-5 w-5 animate-pulse" />
@@ -299,6 +370,15 @@ export default function OrderAlertSystem() {
             ) : (
               <Bell className="h-4 w-4" />
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMinimized(true)}
+            className="rounded-full bg-white/20 p-1.5 hover:bg-white/30"
+            title="Minimize"
+          >
+            <Minus className="h-4 w-4" />
           </button>
         </div>
       </div>

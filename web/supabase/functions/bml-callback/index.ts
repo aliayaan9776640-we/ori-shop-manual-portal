@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -16,8 +17,9 @@ serve(async (req) => {
     const serviceRoleKey =
       Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const bmlApiKey = (Deno.env.get("BML_API_KEY") || "")
-      .trim()
-      .replace(/[\r\n]/g, "");
+  .trim()
+  .replace(/[\r\n\s]/g, "")
+  .replace(/[^A-Za-z0-9._-]/g, "");
 
     if (!serviceRoleKey) {
       return Response.redirect(`${siteUrl}/store?bml_payment=server_error`, 302);
