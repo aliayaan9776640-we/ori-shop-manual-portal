@@ -1,7 +1,10 @@
+import PaymentSuccess from "@/pages/PaymentSuccess";
+import PaymentFailed from "@/pages/PaymentFailed";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import OrderAlertSystem from "@/components/OrderAlertSystem";
 import {
   BrowserRouter,
   Routes,
@@ -516,7 +519,8 @@ function AnimatedRoutes() {
         <Route path="/bill/:token" element={<PublicBill />} />
         <Route path="/store" element={<Store />} />
         <Route path="/pre-orders" element={<PreOrders />} />
-
+        <Route path="/payment-success" element={<PaymentSuccess />} />
+        <Route path="/payment-failed" element={<PaymentFailed />} />
         <Route
           path="/profile"
           element={<CustomerProfileDashboard />}
@@ -589,11 +593,15 @@ const App = () => {
       <TooltipProvider>
         <Toaster />
         <Sonner position="top-right" richColors />
+
         <BrowserRouter>
           <AuthBootstrap />
 
+          <OrderAlertSystem />
+
           <AnimatedRoutes />
         </BrowserRouter>
+
       </TooltipProvider>
     </QueryClientProvider>
   );
