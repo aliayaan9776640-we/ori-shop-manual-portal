@@ -72,23 +72,28 @@ const parseCsv = (value?: string | null): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
-const parseGallery = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value.map(String).map((s) => s.trim()).filter(Boolean);
-  if (typeof value === "string") {
+const parseGalleryUrls = (value: unknown, primary?: string | null): string[] => {
+  const urls: string[] = [];
+  if (primary) urls.push(String(primary));
+  if (Array.isArray(value)) {
+    value.forEach((v) => {
+      if (v) urls.push(String(v));
+    });
+  } else if (typeof value === "string" && value.trim()) {
     try {
       const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) return parsed.map(String).map((s) => s.trim()).filter(Boolean);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((v) => {
+          if (v) urls.push(String(v));
+        });
+      } else {
+        urls.push(value);
+      }
     } catch {
-      return parseCsv(value);
+      parseCsv(value).forEach((v) => urls.push(v));
     }
   }
-  return [];
-};
-
-const getGalleryImages = (p?: PreorderProduct | null): string[] => {
-  const main = p?.photo_url ? [String(p.photo_url)] : [];
-  const gallery = parseGallery(p?.gallery_urls);
-  return Array.from(new Set([...main, ...gallery].map((url) => url.trim()).filter(Boolean))).slice(0, 6);
+  return Array.from(new Set(urls.map((u) => u.trim()).filter(Boolean))).slice(0, 5);
 };
 
 const parseFields = (value: unknown): string[] => {
@@ -192,8 +197,7 @@ export default function PreOrders() {
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<PreorderProduct | null>(null);
-  const [detailProduct, setDetailProduct] = useState<PreorderProduct | null>(null);
-  const [detailImage, setDetailImage] = useState("");
+  const [galleryIndex, setGalleryIndex] = useState(0);
   const [step, setStep] = useState<CheckoutStep>("details");
   const [submitting, setSubmitting] = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
@@ -253,14 +257,13 @@ export default function PreOrders() {
     return products.filter((p) => {
       if (selectedCategory !== "all" && p.category !== selectedCategory) return false;
       if (!q) return true;
-      return p.name.toLowerCase().includes(q) || (p.description || "").toLowerCase().includes(q) || (p.product_details || "").toLowerCase().includes(q) || (p.specifications || "").toLowerCase().includes(q) || (p.category || "").toLowerCase().includes(q);
+      return p.name.toLowerCase().includes(q) || (p.description || "").toLowerCase().includes(q) || (p.category || "").toLowerCase().includes(q);
     });
   }, [products, selectedCategory, search]);
 
   const selectedSizes = selected ? parseCsv(selected.sizes) : [];
-  const detailImages = getGalleryImages(detailProduct);
-  const detailMainImage = detailImage || detailImages[0] || "";
   const selectedColors = selected ? parseCsv(selected.colors) : [];
+  const selectedGallery = selected ? parseGalleryUrls(selected.gallery_urls, selected.photo_url) : [];
   const itemType = getItemType(selected);
   const requiredFields = selected ? defaultFieldsByType(selected) : [];
   const showExtraOptions = !!selected && (itemType !== "normal" || requiredFields.length > 0 || selectedColors.length > 0 || selected.allow_reference_images || selected.allow_quotation || selected.allow_custom_measurements);
@@ -268,7 +271,6 @@ export default function PreOrders() {
   const displayQty = getQtyNumber(form.qty);
   const unitPrice = Number(selected?.price || 0);
   const total = unitPrice * displayQty;
-  const bmlUrl = selected ? addAmountToGatewayUrl(settings?.bml_gateway_url || "", total, selected.name) : "";
 
   const ensureCustomer = async () => {
     await bootstrap();
@@ -281,18 +283,13 @@ export default function PreOrders() {
     return latest;
   };
 
-  const openProductDetails = (item: PreorderProduct) => {
-    const images = getGalleryImages(item);
-    setDetailProduct(item);
-    setDetailImage(images[0] || "");
-  };
-
   const openPreorder = async (item: PreorderProduct) => {
     const latest = await ensureCustomer();
     if (!latest) return;
     const sizes = parseCsv(item.sizes);
     const colors = parseCsv(item.colors);
     setSelected(item);
+    setGalleryIndex(0);
     setStep("details");
     setSubmitting(false);
     setForm({
@@ -423,29 +420,97 @@ export default function PreOrders() {
       setStep("details");
       return;
     }
+
+    // Bank transfer still works same as before
     if (form.payment_method === "bank_transfer" && !form.payment_slip_url) {
       alert("Please upload the payment slip before submitting.");
       setStep("payment");
       return;
     }
+
     if (!form.delivery_address.trim()) {
       alert("Please enter delivery information.");
       setStep("delivery");
       return;
     }
+
     setSubmitting(true);
-    const payload = await buildOrderPayload("order");
-    if (!payload) {
+
+    try {
+      const payload = await buildOrderPayload("order");
+
+      if (!payload) {
+        setSubmitting(false);
+        return;
+      }
+
+      const { data: order, error } = await supabase
+        .from("preorder_orders")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error) {
+        setSubmitting(false);
+        return alert(error.message);
+      }
+
+      if (!order?.id) {
+        setSubmitting(false);
+        return alert("Order created, but order ID was not returned.");
+      }
+
+      // BML payment only
+      if (form.payment_method === "bml_gateway") {
+        const { data, error: functionError } = await supabase.functions.invoke(
+          "create-bml-payment",
+          {
+            body: {
+              order_type: "preorder",
+              order_id: order.id,
+            },
+          }
+        );
+
+        if (functionError) {
+          let detail = functionError.message || "BML payment creation failed.";
+
+          const anyError = functionError as any;
+
+          if (anyError.context) {
+            try {
+              const errorBody = await anyError.context.json();
+              detail = errorBody?.error || JSON.stringify(errorBody);
+            } catch {
+              // keep default error
+            }
+          }
+
+          console.error("BML function error:", functionError);
+          setSubmitting(false);
+          return alert(detail);
+        }
+
+        if (!data?.payment_url) {
+          console.error("BML response without payment URL:", data);
+          setSubmitting(false);
+          return alert(data?.error || "BML payment URL was not returned.");
+        }
+
+        window.location.href = data.payment_url;
+        return;
+      }
+
+      // Bank transfer success flow stays same
       setSubmitting(false);
-      return;
+      alert("Order submitted successfully.");
+      setSelected(null);
+      setStep("details");
+      void load();
+    } catch (err) {
+      setSubmitting(false);
+      alert(err instanceof Error ? err.message : "Order submit failed.");
     }
-    const { error } = await supabase.from("preorder_orders").insert(payload);
-    setSubmitting(false);
-    if (error) return alert(error.message);
-    alert("Order submitted successfully.");
-    setSelected(null);
-    setStep("details");
-    void load();
   };
 
   return (
@@ -522,38 +587,20 @@ export default function PreOrders() {
             <div className="rounded-xl border border-dashed bg-white p-10 text-center text-sm text-slate-500">No pre-order products available.</div>
           ) : (
             <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-              {filtered.map((p) => {
-                const images = getGalleryImages(p);
-                return (
-                  <div
-                    key={p.id}
-                    className="overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                  >
-                    <button type="button" className="block w-full text-left" onClick={() => openProductDetails(p)}>
-                      <div className="aspect-square bg-slate-50">
-                        {images[0] ? <img src={images[0]} alt={p.name} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center"><img src={LOGO_URL} className="h-20 w-20 opacity-30" /></div>}
-                      </div>
-                      <div className="space-y-2 p-3">
-                        <div className="line-clamp-2 min-h-10 text-sm font-bold text-slate-800">{p.name}</div>
-                        <div className="text-xs uppercase text-slate-400">{p.category || "Pre-Order"}</div>
-                        <div className="text-lg font-extrabold text-orange-600">{MVR(Number(p.price || 0))}</div>
-                        <div className="text-xs text-slate-500">Expected: {p.estimated_delivery_date || "-"}</div>
-                        <div className="line-clamp-2 text-xs text-slate-500">{p.product_details || p.description || "Tap to view full details"}</div>
-                        {images.length > 1 && (
-                          <div className="flex gap-1">
-                            {images.slice(0, 5).map((url) => (
-                              <img key={url} src={url} className="h-8 w-8 rounded-md border object-cover" />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </button>
-                    <div className="px-3 pb-3">
-                      <Button className="w-full bg-orange-500 text-white hover:bg-orange-600" onClick={() => openProductDetails(p)}>View Details</Button>
-                    </div>
+              {filtered.map((p) => (
+                <div key={p.id} onClick={() => void openPreorder(p)} className="cursor-pointer overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="aspect-square bg-slate-50">
+                    {parseGalleryUrls(p.gallery_urls, p.photo_url)[0] ? <img src={parseGalleryUrls(p.gallery_urls, p.photo_url)[0]} alt={p.name} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center"><img src={LOGO_URL} className="h-20 w-20 opacity-30" /></div>}
                   </div>
-                );
-              })}
+                  <div className="space-y-2 p-3">
+                    <div className="line-clamp-2 min-h-10 text-sm font-bold text-slate-800">{p.name}</div>
+                    <div className="text-xs uppercase text-slate-400">{p.category || "Pre-Order"}</div>
+                    <div className="text-lg font-extrabold text-orange-600">{MVR(Number(p.price || 0))}</div>
+                    <div className="text-xs text-slate-500">Expected: {p.estimated_delivery_date || "-"}</div>
+                    <Button className="w-full bg-orange-500 text-white hover:bg-orange-600" onClick={(e) => { e.stopPropagation(); void openPreorder(p); }}>View Details / Pre-Order</Button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </main>
@@ -570,98 +617,6 @@ export default function PreOrders() {
           <div className="rounded-xl border bg-white p-4 shadow-sm"><img src={LOGO_URL} className="mx-auto h-28 w-28 opacity-80" /><div className="mt-3 text-center text-sm font-bold text-[#064b2f]">Ori Barakah Store</div></div>
         </aside>
       </div>
-
-      {detailProduct && !selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3">
-          <div className="relative max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
-              <div>
-                <h2 className="text-2xl font-extrabold text-[#064b2f]">{detailProduct.name}</h2>
-                <p className="text-sm text-slate-500">Product photos, details and pre-order information.</p>
-              </div>
-              <button type="button" onClick={() => setDetailProduct(null)} className="rounded-full bg-slate-100 p-2 hover:bg-slate-200"><X className="h-5 w-5" /></button>
-            </div>
-
-            <div className="grid max-h-[calc(92vh-80px)] gap-5 overflow-y-auto p-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
-              <div>
-                <div className="overflow-hidden rounded-2xl border bg-slate-50">
-                  {detailMainImage ? (
-                    <img src={detailMainImage} alt={detailProduct.name} className="h-[420px] w-full object-contain" />
-                  ) : (
-                    <div className="flex h-[420px] items-center justify-center"><img src={LOGO_URL} className="h-28 w-28 opacity-30" /></div>
-                  )}
-                </div>
-
-                {detailImages.length > 1 && (
-                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                    {detailImages.map((url) => (
-                      <button
-                        key={url}
-                        type="button"
-                        onClick={() => setDetailImage(url)}
-                        className={cn("h-20 w-20 shrink-0 overflow-hidden rounded-xl border bg-white", detailMainImage === url ? "border-orange-500 ring-2 ring-orange-200" : "border-slate-200")}
-                      >
-                        <img src={url} className="h-full w-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-4">
-                <div className="rounded-2xl border bg-white p-4">
-                  <div className="text-xs uppercase text-slate-400">{detailProduct.category || "Pre-Order"}</div>
-                  <h3 className="mt-1 text-2xl font-extrabold text-slate-900">{detailProduct.name}</h3>
-                  <div className="mt-3 text-3xl font-black text-orange-600">{MVR(Number(detailProduct.price || 0))}</div>
-                  <div className="mt-2 text-sm text-slate-500">Expected: {detailProduct.estimated_delivery_date || "-"}</div>
-                </div>
-
-                {(detailProduct.description || detailProduct.product_details) && (
-                  <div className="rounded-2xl border bg-white p-4">
-                    <h4 className="mb-2 font-extrabold text-[#064b2f]">Product Information</h4>
-                    {detailProduct.description && <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailProduct.description}</p>}
-                    {detailProduct.product_details && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailProduct.product_details}</p>}
-                  </div>
-                )}
-
-                {detailProduct.specifications && (
-                  <div className="rounded-2xl border bg-white p-4">
-                    <h4 className="mb-2 font-extrabold text-[#064b2f]">Specifications</h4>
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailProduct.specifications}</p>
-                  </div>
-                )}
-
-                {detailProduct.usage_info && (
-                  <div className="rounded-2xl border bg-white p-4">
-                    <h4 className="mb-2 font-extrabold text-[#064b2f]">Usage / Important Information</h4>
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{detailProduct.usage_info}</p>
-                  </div>
-                )}
-
-                <div className="grid gap-2 text-sm sm:grid-cols-2">
-                  <InfoBox label="Unit Type" value={detailProduct.unit_type || "piece"} />
-                  <InfoBox label="Minimum Qty" value={`${detailProduct.minimum_qty || 1}`} />
-                  {detailProduct.sizes && <InfoBox label="Sizes / Options" value={detailProduct.sizes} />}
-                  {detailProduct.colors && <InfoBox label="Colors" value={detailProduct.colors} />}
-                  {detailProduct.fabric && <InfoBox label="Fabric" value={detailProduct.fabric} />}
-                  {detailProduct.garment_type && <InfoBox label="Garment Type" value={detailProduct.garment_type} />}
-                </div>
-
-                <Button
-                  className="w-full bg-orange-500 py-6 text-base font-extrabold text-white hover:bg-orange-600"
-                  onClick={() => {
-                    const item = detailProduct;
-                    setDetailProduct(null);
-                    void openPreorder(item);
-                  }}
-                >
-                  Pre-Order This Product
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3">
@@ -686,12 +641,35 @@ export default function PreOrders() {
             <div className="min-h-0 flex-1 overflow-y-auto p-5">
               {step !== "success" && (
                 <div className="mb-4 grid gap-4 rounded-2xl bg-slate-50 p-4 sm:grid-cols-[150px_minmax(0,1fr)]">
-                  <div className="overflow-hidden rounded-xl bg-white">
-                    {getGalleryImages(selected)[0] ? <img src={getGalleryImages(selected)[0]} className="h-36 w-full object-cover" /> : <div className="flex h-36 items-center justify-center"><img src={LOGO_URL} className="h-20 w-20 opacity-30" /></div>}
+                  <div>
+                    <div className="overflow-hidden rounded-xl bg-white">
+                      {selectedGallery[galleryIndex] ? <img src={selectedGallery[galleryIndex]} className="h-44 w-full object-cover" /> : <div className="flex h-44 items-center justify-center"><img src={LOGO_URL} className="h-20 w-20 opacity-30" /></div>}
+                    </div>
+                    {selectedGallery.length > 1 && (
+                      <div className="mt-2 grid grid-cols-5 gap-2">
+                        {selectedGallery.map((url, index) => (
+                          <button
+                            key={url + index}
+                            type="button"
+                            onClick={() => setGalleryIndex(index)}
+                            className={cn("overflow-hidden rounded-lg border bg-white", galleryIndex === index ? "border-orange-500 ring-2 ring-orange-200" : "border-slate-200")}
+                          >
+                            <img src={url} className="h-12 w-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <div className="text-lg font-bold text-slate-900">{selected.name}</div>
                     <div className="mt-1 text-sm text-slate-500">{selected.description || "Pre-order product"}</div>
+                    {(selected.product_details || selected.specifications || selected.usage_info) && (
+                      <div className="mt-3 space-y-2 rounded-2xl border border-emerald-100 bg-white p-3 text-sm text-slate-700">
+                        {selected.product_details && <div><b className="text-emerald-900">Product info:</b> {selected.product_details}</div>}
+                        {selected.specifications && <div><b className="text-emerald-900">Specifications:</b> {selected.specifications}</div>}
+                        {selected.usage_info && <div><b className="text-emerald-900">Notes:</b> {selected.usage_info}</div>}
+                      </div>
+                    )}
                     <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
                       <InfoBox label="Unit Price" value={MVR(unitPrice)} />
                       <InfoBox label="Quantity" value={`${displayQty}`} />
@@ -708,9 +686,12 @@ export default function PreOrders() {
                     <Input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} placeholder="Phone number" />
                     <Input className="sm:col-span-2" value={form.customer_island} onChange={(e) => setForm({ ...form, customer_island: e.target.value })} placeholder="Island / Address" />
                     {selectedSizes.length > 0 && (
-                      <select value={form.selected_size} onChange={(e) => setForm({ ...form, selected_size: e.target.value })} className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm sm:col-span-2">
-                        {selectedSizes.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                      <div className="sm:col-span-2">
+                        <label className="mb-2 block text-xs font-bold uppercase text-slate-500">Select Size</label>
+                        <select value={form.selected_size} onChange={(e) => setForm({ ...form, selected_size: e.target.value })} className="h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold">
+                          {selectedSizes.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
                     )}
                   </div>
 
@@ -792,10 +773,28 @@ export default function PreOrders() {
                       <div className="font-bold">Bank transfer</div>
                       <div className="text-xs text-slate-500">Upload payment slip for admin verification.</div>
                     </button>
-                    <button type="button" disabled={!settings?.bml_enabled || !settings?.bml_gateway_url} onClick={() => setForm({ ...form, payment_method: "bml_gateway" })} className={cn("rounded-2xl border p-4 text-left disabled:cursor-not-allowed disabled:opacity-50", form.payment_method === "bml_gateway" ? "border-[#064b2f] bg-emerald-50" : "bg-white hover:bg-slate-50")}>
+                    <button
+                      type="button"
+                      disabled={!settings?.bml_enabled}
+                      onClick={() =>
+                        setForm({
+                          ...form,
+                          payment_method: "bml_gateway",
+                          payment_slip_url: "",
+                        })
+                      }
+                      className={cn(
+                        "rounded-2xl border p-4 text-left disabled:cursor-not-allowed disabled:opacity-50",
+                        form.payment_method === "bml_gateway"
+                          ? "border-[#064b2f] bg-emerald-50"
+                          : "bg-white hover:bg-slate-50"
+                      )}
+                    >
                       <CreditCard className="mb-2 h-5 w-5 text-[#064b2f]" />
                       <div className="font-bold">BML Gateway</div>
-                      <div className="text-xs text-slate-500">Gateway link opens with {MVR(total)}.</div>
+                      <div className="text-xs text-slate-500">
+                        Pay securely by BML after submitting the order.
+                      </div>
                     </button>
                   </div>
                   {form.payment_method === "bank_transfer" && (
@@ -809,9 +808,12 @@ export default function PreOrders() {
                   )}
                   {form.payment_method === "bml_gateway" && (
                     <div className="rounded-2xl bg-slate-50 p-4">
-                      <div className="text-sm font-semibold">BML Gateway payment amount: {MVR(total)}</div>
-                      <Button type="button" className="mt-3 bg-[#064b2f] text-white hover:bg-[#073d29]" onClick={() => window.open(bmlUrl, "_blank")} disabled={!bmlUrl}>Open BML Payment Link</Button>
-                      <p className="mt-2 text-xs text-slate-500">After payment, continue to delivery information. Admin will verify payment.</p>
+                      <div className="text-sm font-semibold">
+                        BML Gateway payment amount: {MVR(total)}
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">
+                        After you submit the order, the secure BML payment page will open automatically.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -871,7 +873,20 @@ export default function PreOrders() {
                     {step === "details" && selected.allow_quotation && <Button type="button" variant="outline" disabled={submitting} onClick={() => void requestQuotation()}>{submitting ? "Sending..." : "Request Quotation"}</Button>}
                     {step === "details" && <Button type="button" className="bg-[#064b2f] text-white hover:bg-[#073d29]" onClick={() => { const message = validateDetails(); if (message) return alert(message); setForm((prev) => ({ ...prev, qty: normalizeQty(prev.qty) })); setStep("payment"); }}>Next: Payment {MVR(total)}</Button>}
                     {step === "payment" && <Button type="button" className="bg-[#064b2f] text-white hover:bg-[#073d29]" onClick={() => { if (form.payment_method === "bank_transfer" && !form.payment_slip_url) { alert("Please upload payment slip."); return; } setStep("delivery"); }}>Next: Delivery Information</Button>}
-                    {step === "delivery" && <Button type="button" className="bg-[#064b2f] text-white hover:bg-[#073d29]" disabled={submitting} onClick={() => void submitOrder()}>{submitting ? "Submitting..." : "Submit for Admin Approval"}</Button>}
+                    {step === "delivery" && (
+                      <Button
+                        type="button"
+                        className="bg-[#064b2f] text-white hover:bg-[#073d29]"
+                        disabled={submitting}
+                        onClick={() => void submitOrder()}
+                      >
+                        {submitting
+                          ? "Processing..."
+                          : form.payment_method === "bml_gateway"
+                            ? "Pay with BML"
+                            : "Submit for Admin Approval"}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>

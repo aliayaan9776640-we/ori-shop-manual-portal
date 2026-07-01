@@ -15,17 +15,7 @@ export interface User {
   isPurchasingStaff?: boolean;
 }
 
-export type UnitType =
-  | "piece"
-  | "kg"
-  | "g"
-  | "tin"
-  | "box"
-  | "case"
-  | "bag"
-  | "packet"
-  | "bottle";
-
+export type UnitType = string;
 export interface Supplier {
   id: string;
   name: string;
@@ -101,6 +91,10 @@ export interface Sale {
   change?: number;
   /** Active cash drawer session id at time of sale (linked at POS). */
   drawerId?: string;
+  /** Bank transfer payer name captured at POS when paymentMethod = "bank". */
+  bankTransferName?: string;
+  /** Bank transfer payer phone/reference number captured at POS when paymentMethod = "bank". */
+  bankTransferPhone?: string;
   /** Admin-only protection fields */
   voided?: boolean;
   voidedAt?: string;

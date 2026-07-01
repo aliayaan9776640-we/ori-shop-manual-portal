@@ -39,6 +39,8 @@ export interface PosSettings {
   onlineBankAccountName: string;
   onlineBankAccountNumber: string;
   onlinePaymentNote: string;
+  // BML Gateway for Online Shop checkout
+  onlineBmlEnabled: boolean;
   // Quotation terms & validity
   quotationValidityDays: number;
   quotationTerms: string;
@@ -97,6 +99,7 @@ export const useSettings = create<PosSettings>()(
       onlineBankAccountName: "ORI BROTHERS",
       onlineBankAccountNumber: "7717334505",
       onlinePaymentNote: "Please transfer and upload payment slip.",
+      onlineBmlEnabled: true,
       nearExpiryDays: 7,
       blockExpiredSale: false,
       expiryAlertsEnabled: true,
