@@ -111,25 +111,32 @@ export default function OnlineOrders() {
 
   const active = useMemo(
     () =>
-      orders.filter((o) =>
-        ["pending", "accepted", "preparing", "out_for_delivery"].includes(
+      orders.filter((o) => {
+        const unpaidBmlOrder =
+          o.paymentMethod === "bml_gateway" && o.paymentStatus !== "paid";
+
+        if (unpaidBmlOrder) return false;
+
+        return ["pending", "accepted", "preparing", "out_for_delivery"].includes(
           o.status
-        )
-      ),
+        );
+      }),
     [orders]
   );
   const history = useMemo(
     () =>
-      orders.filter((o) =>
-        ["delivered", "rejected", "cancelled"].includes(o.status)
-      ),
+      orders.filter((o) => {
+        const failedBmlOrder =
+          o.paymentMethod === "bml_gateway" &&
+          ["failed", "cancelled"].includes(String(o.paymentStatus));
+
+        return (
+          failedBmlOrder ||
+          ["delivered", "rejected", "cancelled"].includes(o.status)
+        );
+      }),
     [orders]
   );
-
-  const deliveryStaff = users.filter(
-    (u) => u.active && u.role !== "admin"
-  );
-
   const deleteOrderPermanently = async (o: OnlineOrder): Promise<void> => {
     const ok = window.confirm(
       `Permanently delete order ${o.orderNo || o.id}?\n\nThis will remove the order and its items from Supabase. This action cannot be undone.`
