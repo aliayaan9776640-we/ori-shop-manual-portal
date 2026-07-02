@@ -3,14 +3,14 @@ export default function PaymentFailed() {
         <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#fbfaf5] p-6">
             {/* Background watermark */}
             <img
-                src="/logo.png"
+                src="/ori-logo.png"
                 alt=""
                 className="pointer-events-none absolute left-1/2 top-1/2 h-[520px] w-[520px] -translate-x-1/2 -translate-y-1/2 object-contain opacity-[0.06]"
             />
 
             <div className="relative z-10 w-full max-w-md rounded-3xl border border-red-200 bg-white/90 p-8 text-center shadow-xl">
                 <img
-                    src="/logo.png"
+                    src="/ori-logo.png"
                     alt="Ori Barakah Store"
                     className="mx-auto mb-4 h-24 w-24 object-contain"
                 />
