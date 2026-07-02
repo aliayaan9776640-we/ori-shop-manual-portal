@@ -40,6 +40,7 @@ import {
   Receipt,
   UserCheck,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
 
 const MVR = (n: number): string =>
@@ -128,6 +129,38 @@ export default function OnlineOrders() {
   const deliveryStaff = users.filter(
     (u) => u.active && u.role !== "admin"
   );
+
+  const deleteOrderPermanently = async (o: OnlineOrder): Promise<void> => {
+    const ok = window.confirm(
+      `Permanently delete order ${o.orderNo || o.id}?\n\nThis will remove the order and its items from Supabase. This action cannot be undone.`
+    );
+
+    if (!ok) return;
+
+    const { error: itemError } = await supabase
+      .from("online_order_items")
+      .delete()
+      .eq("order_id", o.id);
+
+    if (itemError) {
+      toast.error("Could not delete order items: " + itemError.message);
+      return;
+    }
+
+    const { error: orderError } = await supabase
+      .from("online_orders")
+      .delete()
+      .eq("id", o.id);
+
+    if (orderError) {
+      toast.error("Could not delete order: " + orderError.message);
+      return;
+    }
+
+    toast.success("Order permanently deleted");
+    setSelected(null);
+    await load();
+  };
 
   const reject = async (): Promise<void> => {
     if (!rejectFor) return;
@@ -240,7 +273,14 @@ export default function OnlineOrders() {
       return;
     }
 
-    const pm = o.paymentMethod === "cash" ? "cash" : o.paymentMethod === "bank" ? "bank" : "credit";
+    const pm =
+      o.paymentMethod === "cash"
+        ? "cash"
+        : o.paymentMethod === "bank"
+          ? "bank"
+          : o.paymentMethod === "bml_gateway"
+            ? "card"
+            : "credit";
 
     // Credit can be used only when the online customer name + phone matches an approved POS credit customer.
     let customerId: string | undefined;
@@ -316,6 +356,7 @@ export default function OnlineOrders() {
             orders={active}
             onSelect={setSelected}
             onReject={setRejectFor}
+            onDelete={(o) => void deleteOrderPermanently(o)}
           />
         </TabsContent>
         <TabsContent value="history" className="mt-4">
@@ -323,6 +364,7 @@ export default function OnlineOrders() {
             orders={history}
             onSelect={setSelected}
             onReject={setRejectFor}
+            onDelete={(o) => void deleteOrderPermanently(o)}
           />
         </TabsContent>
       </Tabs>
@@ -662,10 +704,12 @@ function OrderList({
   orders,
   onSelect,
   onReject,
+  onDelete,
 }: {
   orders: OnlineOrder[];
   onSelect: (o: OnlineOrder) => void;
   onReject: (o: OnlineOrder) => void;
+  onDelete: (o: OnlineOrder) => void;
 }) {
   if (orders.length === 0) {
     return (
@@ -769,6 +813,14 @@ function OrderList({
                         Open
                       </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => onDelete(o)}
+                      title="Delete permanently"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
                   </div>
                 </td>
               </tr>
