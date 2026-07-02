@@ -161,6 +161,17 @@ export default function Store() {
   const [authInitialMode, setAuthInitialMode] = useState<"signin" | "signup">("signin");
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  useEffect(() => {
+    const bmlPayment = searchParams.get("bml_payment");
+
+    if (!bmlPayment) return;
+
+    const timer = window.setTimeout(() => {
+      navigate("/store", { replace: true });
+    }, 1500);
+
+    return () => window.clearTimeout(timer);
+  }, [searchParams, navigate]);
 
   const [cartOpen, setCartOpen] = useState(false);
   const [ordersOpen, setOrdersOpen] = useState(false);
