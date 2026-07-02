@@ -43,11 +43,14 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceRoleKey =
-      Deno.env.get("SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+      Deno.env.get("SERVICE_ROLE_KEY") ||
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
     const bmlApiKey = (Deno.env.get("BML_API_KEY") || "")
       .trim()
       .replace(/[\r\n\s]/g, "")
       .replace(/[^A-Za-z0-9._-]/g, "");
+
     const currency = Deno.env.get("BML_CURRENCY") || "MVR";
 
     if (!serviceRoleKey) throw new Error("Missing service role key");
@@ -59,7 +62,6 @@ serve(async (req) => {
     let tableName = "";
     let localId = String(order_id);
 
-    // DO NOT BREAK PRE-ORDER: this branch keeps the same preorder_orders logic.
     if (order_type === "preorder") {
       tableName = "preorder_orders";
 
@@ -83,9 +85,17 @@ serve(async (req) => {
 
       amount = Math.round(Number(order.agreed_price || 0) * 100);
       localId = order.id;
+
+      // Mark as pending before opening BML.
+      // Do not mark as accepted/paid here. Callback will decide success/fail.
+      await supabase
+        .from("preorder_orders")
+        .update({
+          payment_status: "pending",
+        })
+        .eq("id", order_id);
     }
 
-    // ONLINE SHOP: new branch for online_orders.
     if (order_type === "online") {
       tableName = "online_orders";
 
@@ -109,14 +119,24 @@ serve(async (req) => {
 
       amount = Math.round(Number(order.total ?? order.subtotal ?? 0) * 100);
       localId = order.id;
+
+      // Mark as pending before opening BML.
+      // Do not mark as paid here. Callback will decide success/fail.
+      await supabase
+        .from("online_orders")
+        .update({
+          payment_status: "pending",
+        })
+        .eq("id", order_id);
     }
 
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error("Invalid order amount");
     }
 
-    const redirectUrl =
-      `${supabaseUrl}/functions/v1/bml-callback?order_id=${encodeURIComponent(order_id)}&order_type=${encodeURIComponent(order_type)}`;
+    const redirectUrl = `${supabaseUrl}/functions/v1/bml-callback?order_id=${encodeURIComponent(
+      order_id
+    )}&order_type=${encodeURIComponent(order_type)}`;
 
     const signature = await sha1Hex(
       `amount=${amount}&currency=${currency}&apiKey=${bmlApiKey}`
@@ -153,7 +173,10 @@ serve(async (req) => {
     if (!bmlRes.ok) {
       await supabase
         .from(tableName)
-        .update({ bml_raw_response: bmlData })
+        .update({
+          payment_status: "failed",
+          bml_raw_response: bmlData,
+        })
         .eq("id", order_id);
 
       throw new Error(bmlData?.message || "BML transaction create failed");
@@ -176,7 +199,10 @@ serve(async (req) => {
     if (!paymentUrl) {
       await supabase
         .from(tableName)
-        .update({ bml_raw_response: bmlData })
+        .update({
+          payment_status: "failed",
+          bml_raw_response: bmlData,
+        })
         .eq("id", order_id);
 
       throw new Error("BML did not return payment URL");
