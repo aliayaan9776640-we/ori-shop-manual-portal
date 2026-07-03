@@ -75,7 +75,7 @@ export default function OnlineOrders() {
   const addSale = useStore((s) => s.addSale);
   const users = useStore((s) => s.users);
   const currentUser = useCurrentUser();
-
+  const deliveryStaff = users.filter((u) => u.active && u.role !== "admin");
   const [tab, setTab] = useState<string>("active");
   const [selected, setSelected] = useState<OnlineOrder | null>(null);
   const [rejectFor, setRejectFor] = useState<OnlineOrder | null>(null);
