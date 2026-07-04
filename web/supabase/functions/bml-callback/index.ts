@@ -104,15 +104,32 @@ serve(async (req) => {
       bmlTransactionId
     )}`;
 
-    const bmlRes = await fetch(bmlStatusUrl, {
+    let bmlRes = await fetch(bmlStatusUrl, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${bmlApiKey}`,
+        Authorization: bmlApiKey.trim(),
         "Content-Type": "application/json",
       },
     });
 
-    const bmlData = await bmlRes.json().catch(() => ({}));
+    let bmlData = await bmlRes.json().catch(() => ({}));
+
+    /*
+      Fallback:
+      Some API setups expect Bearer format.
+      Try it only if raw API key failed.
+    */
+    if (!bmlRes.ok && bmlRes.status === 401) {
+      bmlRes = await fetch(bmlStatusUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${bmlApiKey.trim()}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      bmlData = await bmlRes.json().catch(() => ({}));
+    }
 
     console.log("BML STATUS RESPONSE:", {
       ok: bmlRes.ok,
@@ -127,8 +144,8 @@ serve(async (req) => {
         await supabase
           .from("online_orders")
           .update({
-            payment_status: "failed",
-            status: "cancelled",
+            payment_status: "pending",
+            status: "pending",
             bml_raw_response: bmlData,
           })
           .eq("id", orderId);
@@ -136,15 +153,15 @@ serve(async (req) => {
         await supabase
           .from("preorder_orders")
           .update({
-            payment_status: "failed",
-            order_status: "cancelled",
+            payment_status: "pending",
+            order_status: "payment_pending",
             bml_raw_response: bmlData,
           })
           .eq("id", orderId);
       }
 
       return Response.redirect(
-        `${failedPage}?reason=bml_status_failed&order_id=${encodeURIComponent(
+        `${failedPage}?reason=bml_status_check_failed&order_id=${encodeURIComponent(
           orderId
         )}&order_type=${encodeURIComponent(finalOrderType)}`,
         302
