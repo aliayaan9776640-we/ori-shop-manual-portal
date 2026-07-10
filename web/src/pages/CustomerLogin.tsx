@@ -20,7 +20,7 @@ import {
   Store as StoreIcon,
 } from "lucide-react";
 import { useCustomerStore } from "@/lib/onlineStore";
-import { customerSupabase, isSupabaseConfigured } from "@/lib/supabase";
+import { customerSupabase, isSupabaseConfigured, supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -173,7 +173,7 @@ export default function CustomerLogin() {
       }
 
       toast.success("Email verified successfully.");
-      setMode("signin");
+      navigate("/store", { replace: true });
       setOtp("");
     } finally {
       setBusy(false);
@@ -460,7 +460,7 @@ export default function CustomerLogin() {
                         return;
                       }
 
-                      const { error } = await customerSupabase.auth.resetPasswordForEmail(
+                      const { error } = await supabase.auth.resetPasswordForEmail(
                         emailValue,
                         {
                           redirectTo: window.location.origin + "/reset-password",

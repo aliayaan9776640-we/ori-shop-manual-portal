@@ -57,7 +57,30 @@ export default function OrderAlertSystem() {
       intervalRef.current = null;
     }
   };
+  useEffect(() => {
+    const handleOrderOpened = (event: Event) => {
+      const customEvent = event as CustomEvent<{ type?: string }>;
+      const type = customEvent.detail?.type;
 
+      stopSoundLoop();
+
+      if (type === "online") {
+        setCounts((prev) => ({ ...prev, online: 0 }));
+      }
+
+      if (type === "preorder") {
+        setCounts((prev) => ({ ...prev, preorder: 0 }));
+      }
+
+      setMinimized(true);
+    };
+
+    window.addEventListener("ori:order-opened", handleOrderOpened);
+
+    return () => {
+      window.removeEventListener("ori:order-opened", handleOrderOpened);
+    };
+  }, []);
   const playSound = async () => {
     if (muted || !isStaffAllowed || isCustomerOrPublicPage) return;
 

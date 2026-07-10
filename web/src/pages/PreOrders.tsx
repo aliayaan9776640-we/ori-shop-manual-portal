@@ -388,7 +388,12 @@ export default function PreOrders() {
       payment_method: requestType === "quotation" ? "quotation" : form.payment_method,
       payment_slip_url: requestType === "quotation" ? null : form.payment_slip_url,
       payment_status: requestType === "quotation" ? "quotation_pending" : "pending",
-      order_status: requestType === "quotation" ? "quotation_requested" : "pending",
+      order_status:
+        requestType === "quotation"
+          ? "quotation_requested"
+          : form.payment_method === "bml_gateway"
+            ? "payment_pending"
+            : "pending",
       tracking_status: "pending",
       request_type: requestType,
       quotation_status: requestType === "quotation" ? "pending" : null,
@@ -414,6 +419,106 @@ export default function PreOrders() {
   };
 
   const submitOrder = async () => {
+    const message = validateDetails();
+    if (message) {
+      alert(message);
+      setStep("details");
+      return;
+    }
+
+    // Bank transfer still works same as before
+    if (form.payment_method === "bank_transfer" && !form.payment_slip_url) {
+      alert("Please upload the payment slip before submitting.");
+      setStep("payment");
+      return;
+    }
+
+    if (!form.delivery_address.trim()) {
+      alert("Please enter delivery information.");
+      setStep("delivery");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const payload = await buildOrderPayload("order");
+
+      if (!payload) {
+        setSubmitting(false);
+        return;
+      }
+
+      const { data: order, error } = await supabase
+        .from("preorder_orders")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error) {
+        setSubmitting(false);
+        return alert(error.message);
+      }
+
+      if (!order?.id) {
+        setSubmitting(false);
+        return alert("Order created, but order ID was not returned.");
+      }
+
+      // BML payment only
+      if (form.payment_method === "bml_gateway") {
+        const { data, error: functionError } = await supabase.functions.invoke(
+          "create-bml-payment",
+          {
+            body: {
+              order_type: "preorder",
+              order_id: order.id,
+            },
+          }
+        );
+
+        if (functionError) {
+          let detail = functionError.message || "BML payment creation failed.";
+
+          const anyError = functionError as any;
+
+          if (anyError.context) {
+            try {
+              const errorBody = await anyError.context.json();
+              detail = errorBody?.error || JSON.stringify(errorBody);
+            } catch {
+              // keep default error
+            }
+          }
+
+          console.error("BML function error:", functionError);
+          setSubmitting(false);
+          return alert(detail);
+        }
+
+        if (!data?.payment_url) {
+          console.error("BML response without payment URL:", data);
+          setSubmitting(false);
+          return alert(data?.error || "BML payment URL was not returned.");
+        }
+
+        window.location.href = data.payment_url;
+        return;
+      }
+
+      // Bank transfer success flow stays same
+      setSubmitting(false);
+      alert("Order submitted successfully.");
+      setSelected(null);
+      setStep("details");
+      void load();
+    } catch (err) {
+      setSubmitting(false);
+      alert(err instanceof Error ? err.message : "Order submit failed.");
+    }
+  };
+
+  const submitOrderBml = async () => {
     const message = validateDetails();
     if (message) {
       alert(message);

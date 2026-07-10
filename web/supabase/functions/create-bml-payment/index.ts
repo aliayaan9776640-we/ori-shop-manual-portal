@@ -45,6 +45,7 @@ serve(async (req) => {
     const serviceRoleKey =
       Deno.env.get("SERVICE_ROLE_KEY") ||
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    const siteUrl = Deno.env.get("SITE_URL") || "https://www.oribarakah.com";
 
     const bmlApiKey = (Deno.env.get("BML_API_KEY") || "")
       .trim()
@@ -137,6 +138,9 @@ serve(async (req) => {
     const redirectUrl = `${supabaseUrl}/functions/v1/bml-callback?order_id=${encodeURIComponent(
       order_id
     )}&order_type=${encodeURIComponent(order_type)}`;
+    const cancelUrl = `${siteUrl}/payment-failed?reason=customer_cancelled&order_id=${encodeURIComponent(
+      order_id
+    )}&order_type=${encodeURIComponent(order_type)}`;
 
     const signature = await sha1Hex(
       `amount=${amount}&currency=${currency}&apiKey=${bmlApiKey}`
@@ -146,6 +150,9 @@ serve(async (req) => {
       currency,
       amount,
       redirectUrl,
+      cancelUrl,
+      returnUrl: cancelUrl,
+      failedUrl: cancelUrl,
       localId,
       apiVersion: "2.0",
       appVersion: "ori-barakah-store",

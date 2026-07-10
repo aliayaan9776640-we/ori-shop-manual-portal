@@ -8,6 +8,7 @@ import {
   sumDenominations,
   type DenominationCount,
   type CashDrawer,
+  type CashOutRequest,
 } from "@/lib/cashDrawer";
 import { Banknote } from "lucide-react";
 import { formatCurrency, formatDateTime, isSameDay } from "@/lib/format";
@@ -29,16 +30,61 @@ export default function CashDrawerPage() {
   const isAdmin = user?.role === "admin";
   const settings = useSettings();
   const sales = useStore((s) => s.sales);
-  const { drawers, open, close, approve, remove, addCashUsed, load, loaded } =
-    useCashDrawers();
+  const {
+    drawers,
+    open,
+    close,
+    approve,
+    remove,
+    requestCashOut,
+    approveCashOut,
+    rejectCashOut,
+    load,
+  } = useCashDrawers();
 
   useEffect(() => {
-    if (!loaded) {
-      void load().catch((e: unknown) => {
-        console.warn("[cash_drawers] load failed", e);
-      });
-    }
-  }, [loaded, load]);
+    // Auto-refresh Cash Drawer page data.
+    // Drawer history comes from cashDrawer.ts.
+    // Live cash-sales totals come from store.ts sales.
+    // So both must refresh automatically; otherwise Ctrl + Shift + R is needed.
+    let alive = true;
+
+    const refreshAll = async (): Promise<void> => {
+      if (!alive) return;
+      try {
+        await Promise.all([
+          load(),
+          useStore.getState().bootstrap(),
+        ]);
+      } catch (e: unknown) {
+        console.warn("[cash_drawers] auto refresh failed", e);
+      }
+    };
+
+    void refreshAll();
+
+    const interval = window.setInterval(() => {
+      void refreshAll();
+    }, 5000);
+
+    const onFocus = (): void => {
+      void refreshAll();
+    };
+
+    const onVisibilityChange = (): void => {
+      if (!document.hidden) void refreshAll();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      alive = false;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [load]);
   const [cashUsedInput, setCashUsedInput] = useState<string>("");
   const [cashUsedNote, setCashUsedNote] = useState<string>("");
 
@@ -46,6 +92,8 @@ export default function CashDrawerPage() {
   const [denominations, setDenominations] =
     useState<DenominationCount[]>(DEFAULT_DENOMINATIONS);
   const [closeNotes, setCloseNotes] = useState<string>("");
+  const [fromDate, setFromDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [toDate, setToDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
 
   // Shop-wide: there can only be ONE open drawer at a time.
   // Any cashier sees and may close it.
@@ -88,8 +136,13 @@ export default function CashDrawerPage() {
   const counted = sumDenominations(denominations);
   const opening = myDrawer?.openingCash ?? 0;
   const changeGiven = myDrawer?.changeGiven ?? 0;
-  const cashUsed = myDrawer?.cashUsed ?? 0;
-  // Expected Drawer Cash = Opening Cash + Cash Sales - Change Given - Cash Used
+  const cashOutRequests = myDrawer?.cashOutRequests ?? [];
+  const pendingCashOut = cashOutRequests.filter((r) => r.status === "pending");
+  const approvedCashOut = cashOutRequests
+    .filter((r) => r.status === "approved")
+    .reduce((sum, r) => sum + r.amount, 0);
+  const cashUsed = +(approvedCashOut || myDrawer?.cashUsed || 0).toFixed(2);
+  // Expected Drawer Cash = Opening Cash + Cash Sales - Change Given - Approved Cash Out
   const expectedDrawer = +(opening + aggregates.cash - changeGiven - cashUsed).toFixed(2);
   const difference = +(counted - expectedDrawer).toFixed(2);
 
@@ -115,6 +168,12 @@ export default function CashDrawerPage() {
       toast.error(msg);
       return;
     }
+    await Promise.all([
+      load(),
+      useStore.getState().bootstrap(),
+    ]).catch((e: unknown) => {
+      console.warn("[cash_drawers] reload after open failed", e);
+    });
     setOpeningCash("");
     setDenominations(DEFAULT_DENOMINATIONS.map((d) => ({ ...d })));
     toast.success(`Drawer opened with ${formatCurrency(oc)}`);
@@ -125,6 +184,12 @@ export default function CashDrawerPage() {
     if (counted <= 0) {
       toast.error(
         "Enter the actual counted cash (denomination count) before closing."
+      );
+      return;
+    }
+    if (pendingCashOut.length > 0) {
+      toast.error(
+        "Pending cash out approval exists. Drawer cannot be closed until admin approves or rejects."
       );
       return;
     }
@@ -167,6 +232,12 @@ export default function CashDrawerPage() {
       toast.error(`Failed to save closing record: ${msg}`);
       return;
     }
+    await Promise.all([
+      load(),
+      useStore.getState().bootstrap(),
+    ]).catch((e: unknown) => {
+      console.warn("[cash_drawers] reload after close failed", e);
+    });
     toast.success(
       difference === 0
         ? "Drawer closed — perfectly balanced"
@@ -177,10 +248,95 @@ export default function CashDrawerPage() {
     setCloseNotes("");
   };
 
+
+  const handleRequestCashOut = async (): Promise<void> => {
+    if (!myDrawer || !user) return;
+    const amt = Number(cashUsedInput);
+    if (isNaN(amt) || amt <= 0) {
+      toast.error("Enter a valid amount");
+      return;
+    }
+    if (!cashUsedNote.trim()) {
+      toast.error("Purpose/reason is required");
+      return;
+    }
+    try {
+      await requestCashOut({
+        drawerId: myDrawer.id,
+        amount: amt,
+        purpose: cashUsedNote.trim(),
+        requestedBy: user.id,
+        requestedByName: user.fullName,
+      });
+    await Promise.all([
+      load(),
+      useStore.getState().bootstrap(),
+    ]).catch((e: unknown) => {
+      console.warn("[cash_drawers] reload after cash-out request failed", e);
+    });
+      setCashUsedInput("");
+      setCashUsedNote("");
+      toast.success("Cash-out request sent for admin approval");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
+    }
+  };
+
+  const handleApproveCashOut = async (req: CashOutRequest): Promise<void> => {
+    if (!myDrawer || !user) return;
+    const note = window.prompt("Admin note (optional):") ?? undefined;
+    try {
+      await approveCashOut(myDrawer.id, req.id, {
+        id: user.id,
+        name: user.fullName,
+        note,
+      });
+    await Promise.all([
+      load(),
+      useStore.getState().bootstrap(),
+    ]).catch((e: unknown) => {
+      console.warn("[cash_drawers] reload after cash-out approval failed", e);
+    });
+      toast.success("Cash-out request approved");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
+    }
+  };
+
+  const handleRejectCashOut = async (req: CashOutRequest): Promise<void> => {
+    if (!myDrawer || !user) return;
+    const note = window.prompt("Reason/note (optional):") ?? undefined;
+    try {
+      await rejectCashOut(myDrawer.id, req.id, {
+        id: user.id,
+        name: user.fullName,
+        note,
+      });
+    await Promise.all([
+      load(),
+      useStore.getState().bootstrap(),
+    ]).catch((e: unknown) => {
+      console.warn("[cash_drawers] reload after cash-out reject failed", e);
+    });
+      toast.success("Cash-out request rejected");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg);
+    }
+  };
+
   const handleApprove = async (id: string): Promise<void> => {
     const note = window.prompt("Admin note (optional):") ?? undefined;
     try {
       await approve(id, note);
+    await Promise.all([
+      load(),
+      useStore.getState().bootstrap(),
+    ]).catch((e: unknown) => {
+      console.warn("[cash_drawers] reload after drawer approval failed", e);
+    });
       toast.success("Drawer closing approved");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -217,6 +373,12 @@ export default function CashDrawerPage() {
         },
         { id: user.id, name: user.fullName, reason: `force close: ${reason}` }
       );
+    await Promise.all([
+      load(),
+      useStore.getState().bootstrap(),
+    ]).catch((e: unknown) => {
+      console.warn("[cash_drawers] reload after force close failed", e);
+    });
       toast.success("Drawer force-closed");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -228,6 +390,12 @@ export default function CashDrawerPage() {
     if (!confirm("Delete this drawer record?")) return;
     try {
       await remove(id);
+    await Promise.all([
+      load(),
+      useStore.getState().bootstrap(),
+    ]).catch((e: unknown) => {
+      console.warn("[cash_drawers] reload after delete failed", e);
+    });
       toast.success("Drawer record deleted");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -267,7 +435,7 @@ export default function CashDrawerPage() {
 <div class="row"><span>Opening cash</span><span>${formatCurrency(d.openingCash)}</span></div>
 <div class="row"><span>Total cash sales</span><span>${formatCurrency(d.cashSales ?? 0)}</span></div>
 <div class="row"><span>Change given</span><span>- ${formatCurrency(d.changeGiven ?? 0)}</span></div>
-<div class="row"><span>Cash used</span><span>- ${formatCurrency(d.cashUsed ?? 0)}</span></div>
+<div class="row"><span>Approved cash out</span><span>- ${formatCurrency(d.cashUsed ?? 0)}</span></div>
 <div class="row"><span>Card sales</span><span>${formatCurrency(d.cardSales ?? 0)}</span></div>
 <div class="row"><span>Bank transfer sales</span><span>${formatCurrency(d.bankSales ?? 0)}</span></div>
 <div class="row"><span>Credit sales</span><span>${formatCurrency(d.creditSales ?? 0)}</span></div>
@@ -388,7 +556,7 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
                 <Row label="Opening cash" value={formatCurrency(opening)} />
                 <Row label="Total cash sales" value={formatCurrency(aggregates.cash)} />
                 <Row label="Change given" value={`- ${formatCurrency(changeGiven)}`} />
-                <Row label="Cash used" value={`- ${formatCurrency(cashUsed)}`} />
+                <Row label="Approved cash out" value={`- ${formatCurrency(cashUsed)}`} />
                 <div className="my-1 border-t border-slate-200" />
                 <Row label="Card sales" value={formatCurrency(aggregates.card)} />
                 <Row label="Bank transfer sales" value={formatCurrency(aggregates.bank)} />
@@ -478,13 +646,16 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
                 ))}
               </div>
 
-              {/* Cash used / paid out */}
+              {/* Cash out approval request */}
               <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
                 <div className="mb-2 flex items-center gap-2">
                   <Banknote className="h-4 w-4 text-amber-700" />
                   <span className="text-xs font-bold uppercase tracking-wider text-amber-800">
-                    Cash used (paid out from drawer)
+                    Cash Out Request
                   </span>
+                </div>
+                <div className="mb-2 rounded-md bg-white/70 px-3 py-2 text-[11px] text-amber-900">
+                  Cash taken from sales must be requested with a purpose. Pending requests do not reduce drawer cash. Drawer cannot close until pending requests are approved or rejected.
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <input
@@ -500,34 +671,73 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
                     type="text"
                     value={cashUsedNote}
                     onChange={(e) => setCashUsedNote(e.target.value)}
-                    placeholder="Reason (e.g. expense, refund)"
+                    placeholder="Purpose / reason"
                     className="h-10 flex-1 rounded-md border border-amber-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-amber-500"
                   />
                   <Button
-                    onClick={() => {
-                      const amt = Number(cashUsedInput);
-                      if (!user || isNaN(amt) || amt <= 0) {
-                        toast.error("Enter a valid amount");
-                        return;
-                      }
-                      addCashUsed(user.id, amt);
-                      setCloseNotes(
-                        (prev) =>
-                          (prev ? prev + "\n" : "") +
-                          `Cash used ${formatCurrency(amt)}${cashUsedNote ? ` — ${cashUsedNote}` : ""}`
-                      );
-                      setCashUsedInput("");
-                      setCashUsedNote("");
-                      toast.success(`Recorded cash used ${formatCurrency(amt)}`);
-                    }}
+                    onClick={() => { void handleRequestCashOut(); }}
                     className="h-10 bg-amber-600 hover:bg-amber-700"
                   >
-                    Record
+                    Send Request
                   </Button>
                 </div>
-                <div className="mt-2 text-[11px] text-amber-800">
-                  Running total: <strong>{formatCurrency(cashUsed)}</strong>
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <MiniCashOutTotal label="Pending" value={pendingCashOut.reduce((s, r) => s + r.amount, 0)} tone="amber" />
+                  <MiniCashOutTotal label="Approved" value={cashUsed} tone="emerald" />
+                  <MiniCashOutTotal label="Rejected" value={cashOutRequests.filter((r) => r.status === "rejected").reduce((s, r) => s + r.amount, 0)} tone="rose" />
                 </div>
+                {cashOutRequests.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {cashOutRequests.map((r) => (
+                      <div key={r.id} className="rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="font-bold text-slate-900">
+                              {formatCurrency(r.amount)} · {r.purpose}
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              Requested by {r.requestedByName} · {formatDateTime(r.requestedAt)}
+                            </div>
+                            {r.adminNote && (
+                              <div className="mt-1 text-[11px] text-slate-600">
+                                Admin note: {r.adminNote}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
+                                r.status === "approved"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : r.status === "rejected"
+                                    ? "bg-rose-100 text-rose-700"
+                                    : "bg-amber-100 text-amber-700"
+                              }`}
+                            >
+                              {r.status}
+                            </span>
+                            {isAdmin && r.status === "pending" && (
+                              <>
+                                <button
+                                  onClick={() => { void handleApproveCashOut(r); }}
+                                  className="rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 hover:bg-emerald-100"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => { void handleRejectCashOut(r); }}
+                                  className="rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700 hover:bg-rose-100"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="mt-3">
@@ -543,17 +753,56 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
                 />
               </div>
 
+              {pendingCashOut.length > 0 && (
+                <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                  Pending cash out approval exists. Drawer cannot be closed until admin approves or rejects.
+                </div>
+              )}
               <Button
+                disabled={pendingCashOut.length > 0}
                 onClick={() => { void handleClose(); }}
-                className="mt-3 h-12 w-full bg-rose-600 text-base font-bold hover:bg-rose-700"
+                className="mt-3 h-12 w-full bg-rose-600 text-base font-bold hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <DoorClosed className="mr-2 h-5 w-5" /> Close drawer · Counted{" "}
+                <DoorClosed className="mr-2 h-5 w-5" /> {pendingCashOut.length > 0 ? "Pending cash-out approval" : "Close drawer"} · Counted{" "}
                 {formatCurrency(counted)}
               </Button>
             </div>
           )}
         </div>
       )}
+
+      {/* Cash Drawer Report */}
+      <div className="pos-card mb-6 p-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-foreground">Cash Drawer Report</h3>
+            <p className="text-xs text-muted-foreground">
+              Daily on-hand cash and selected date-to-date totals.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <label className="text-xs font-semibold text-muted-foreground">
+              From
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="ml-2 h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+              />
+            </label>
+            <label className="text-xs font-semibold text-muted-foreground">
+              To
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="ml-2 h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+              />
+            </label>
+          </div>
+        </div>
+        <DrawerReportSummary drawers={visibleDrawers} fromDate={fromDate} toDate={toDate} />
+      </div>
 
       {/* History */}
       <div className="pos-card overflow-hidden">
@@ -570,7 +819,8 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
                 <th className="px-4 py-3 text-left">Opened</th>
                 <th className="px-4 py-3 text-left">Closed</th>
                 <th className="px-4 py-3 text-right">Opening</th>
-                <th className="px-4 py-3 text-right">Sales</th>
+                <th className="px-4 py-3 text-right">Cash Sales</th>
+                <th className="px-4 py-3 text-right">Approved Out</th>
                 <th className="px-4 py-3 text-right">Expected</th>
                 <th className="px-4 py-3 text-right">Counted</th>
                 <th className="px-4 py-3 text-right">Difference</th>
@@ -581,7 +831,7 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
             <tbody className="divide-y divide-border">
               {visibleDrawers.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={11} className="px-4 py-12 text-center text-muted-foreground">
                     <Wallet className="mx-auto mb-2 h-8 w-8 opacity-40" />
                     No drawer history yet.
                   </td>
@@ -598,7 +848,10 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
                     </td>
                     <td className="px-4 py-3 text-right">{formatCurrency(d.openingCash)}</td>
                     <td className="px-4 py-3 text-right">
-                      {formatCurrency(d.totalSales ?? 0)}
+                      {formatCurrency(d.cashSales ?? 0)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {formatCurrency(d.cashUsed ?? 0)}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {formatCurrency(d.expectedCash ?? 0)}
@@ -700,6 +953,93 @@ function Row({
       <span className={bold ? "font-bold text-foreground" : "font-semibold text-foreground"}>
         {value}
       </span>
+    </div>
+  );
+}
+
+
+function MiniCashOutTotal({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "amber" | "emerald" | "rose";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : tone === "rose"
+        ? "bg-rose-50 text-rose-700 border-rose-200"
+        : "bg-amber-50 text-amber-700 border-amber-200";
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${toneClass}`}>
+      <div className="text-[10px] font-bold uppercase tracking-wider">{label}</div>
+      <div className="text-sm font-extrabold">{formatCurrency(value)}</div>
+    </div>
+  );
+}
+
+function DrawerReportSummary({
+  drawers,
+  fromDate,
+  toDate,
+}: {
+  drawers: CashDrawer[];
+  fromDate: string;
+  toDate: string;
+}) {
+  const filtered = useMemo(() => {
+    const from = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : -Infinity;
+    const to = toDate ? new Date(`${toDate}T23:59:59`).getTime() : Infinity;
+    return drawers.filter((d) => {
+      const t = new Date(d.openedAt).getTime();
+      return t >= from && t <= to;
+    });
+  }, [drawers, fromDate, toDate]);
+
+  const totals = filtered.reduce(
+    (acc, d) => {
+      const approvedOut =
+        d.cashUsed ??
+        (d.cashOutRequests ?? [])
+          .filter((r) => r.status === "approved")
+          .reduce((s, r) => s + r.amount, 0);
+      acc.opening += d.openingCash ?? 0;
+      acc.cashSales += d.cashSales ?? 0;
+      acc.changeGiven += d.changeGiven ?? 0;
+      acc.approvedOut += approvedOut;
+      acc.expected += d.expectedCash ?? 0;
+      acc.counted += d.countedCash ?? 0;
+      acc.difference += d.difference ?? 0;
+      return acc;
+    },
+    {
+      opening: 0,
+      cashSales: 0,
+      changeGiven: 0,
+      approvedOut: 0,
+      expected: 0,
+      counted: 0,
+      difference: 0,
+    }
+  );
+
+  return (
+    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+      <SummaryCard label="Drawers" value={String(filtered.length)} icon={Wallet} />
+      <SummaryCard label="Opening" value={formatCurrency(totals.opening)} icon={Banknote} />
+      <SummaryCard label="Cash from POS" value={formatCurrency(totals.cashSales)} icon={Calculator} />
+      <SummaryCard label="Change given" value={formatCurrency(totals.changeGiven)} icon={DoorOpen} />
+      <SummaryCard label="Approved out" value={formatCurrency(totals.approvedOut)} icon={Banknote} tone="rose" />
+      <SummaryCard label="Expected cash" value={formatCurrency(totals.expected)} icon={Wallet} tone="emerald" />
+      <SummaryCard
+        label="Difference"
+        value={formatCurrency(totals.difference)}
+        icon={AlertTriangle}
+        tone={totals.difference < 0 ? "rose" : "emerald"}
+      />
     </div>
   );
 }

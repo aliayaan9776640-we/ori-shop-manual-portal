@@ -201,7 +201,10 @@ export default function Customers() {
 
   const submitPayment = (): void => {
     if (!payOpen) return;
-    if (payAmt <= 0) return toast.error("Amount must be > 0");
+    if (payAmt <= 0) {
+      toast.error("Amount must be > 0");
+      return;
+    }
     addCreditPayment(payOpen.id, payAmt, payNote);
     toast.success("Payment recorded");
     setPayOpen(null);
@@ -211,7 +214,10 @@ export default function Customers() {
 
   const confirmApprove = (): void => {
     if (!approveTarget) return;
-    if (approveLimit <= 0) return toast.error("Set a credit limit first");
+    if (approveLimit <= 0) {
+      toast.error("Set a credit limit first");
+      return;
+    }
     approveCustomer(approveTarget.id, approveLimit);
     toast.success(`Approved ${approveTarget.name}`);
     setApproveTarget(null);
@@ -441,13 +447,12 @@ export default function Customers() {
                     </div>
                     <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary">
                       <div
-                        className={`h-full rounded-full transition-all ${
-                          utilization >= 90
-                            ? "bg-rose-500"
-                            : utilization >= 60
+                        className={`h-full rounded-full transition-all ${utilization >= 90
+                          ? "bg-rose-500"
+                          : utilization >= 60
                             ? "bg-amber-500"
                             : "bg-emerald-500"
-                        }`}
+                          }`}
                         style={{ width: `${Math.min(100, utilization)}%` }}
                       />
                     </div>
@@ -473,9 +478,8 @@ export default function Customers() {
                           </span>
                         </span>
                         <span
-                          className={`font-medium ${
-                            t.type === "payment" ? "text-success" : ""
-                          }`}
+                          className={`font-medium ${t.type === "payment" ? "text-success" : ""
+                            }`}
                         >
                           {t.type === "payment" ? "-" : "+"}
                           {formatCurrency(t.amount)}
@@ -758,16 +762,14 @@ function StatCard({
 }) {
   return (
     <div
-      className={`rounded-xl border p-4 shadow-sm ${
-        accent === "amber"
-          ? "border-amber-200 bg-gradient-to-br from-amber-50 to-amber-100 text-amber-900"
-          : "border-border bg-card"
-      }`}
+      className={`rounded-xl border p-4 shadow-sm ${accent === "amber"
+        ? "border-amber-200 bg-gradient-to-br from-amber-50 to-amber-100 text-amber-900"
+        : "border-border bg-card"
+        }`}
     >
       <div
-        className={`text-xs uppercase tracking-widest ${
-          accent === "amber" ? "opacity-70" : "text-muted-foreground"
-        }`}
+        className={`text-xs uppercase tracking-widest ${accent === "amber" ? "opacity-70" : "text-muted-foreground"
+          }`}
       >
         {label}
       </div>

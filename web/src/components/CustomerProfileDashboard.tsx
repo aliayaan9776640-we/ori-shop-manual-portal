@@ -28,6 +28,7 @@ type TabKey =
   | "cart"
   | "orders"
   | "preorders"
+  | "quotations"
   | "history"
   | "password";
 
@@ -127,6 +128,7 @@ export default function CustomerProfileDashboard() {
     { key: "cart" as TabKey, label: "My Cart", icon: ShoppingCart, badge: cart.length },
     { key: "orders" as TabKey, label: "My Orders", icon: Receipt, badge: activeOrders.length },
     { key: "preorders" as TabKey, label: "My Pre-Orders", icon: PackageCheck, badge: null },
+    { key: "quotations" as TabKey, label: "My Quotations", icon: Receipt, badge: null },
     { key: "history" as TabKey, label: "Order History", icon: Clock, badge: deliveredOrders.length },
     { key: "password" as TabKey, label: "Change Password", icon: Lock, badge: null },
   ];
@@ -291,6 +293,19 @@ export default function CustomerProfileDashboard() {
                   <p className="text-sm text-slate-500">
                     Track your preorder requests, approval status, delivery
                     date, and admin updates.
+                  </p>
+                </div>
+                <CustomerPreorderHistory />
+              </div>
+            )}
+            {activeTab === "quotations" && (
+              <div className="rounded-3xl border bg-white p-5 shadow-sm">
+                <div className="mb-4">
+                  <h3 className="text-xl font-extrabold text-emerald-900">
+                    My Quotations
+                  </h3>
+                  <p className="text-sm text-slate-500">
+                    Quotations sent by admin will appear here automatically. Check price, notes, and submitted item details.
                   </p>
                 </div>
                 <CustomerPreorderHistory />

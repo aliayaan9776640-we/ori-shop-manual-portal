@@ -34,7 +34,7 @@ export type OnlineOrderStatus =
   | "delivered"
   | "cancelled";
 
-export type OnlinePaymentMethod = "cash" | "bank" | "credit";
+export type OnlinePaymentMethod = "cash" | "bank" | "credit" | "bml_gateway";
 
 export interface OnlineOrderItem {
   id: string;

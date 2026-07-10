@@ -38,7 +38,7 @@ export default function PaymentSuccess() {
                     </a>
 
                     <a
-                        href="/"
+                        href="/store"
                         className="rounded-xl border border-gray-300 px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
                     >
                         Go to Home Page

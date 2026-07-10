@@ -52,6 +52,7 @@ import CustomerProfileDashboard from "@/components/CustomerProfileDashboard";
 import CustomerApprovals from "./pages/CustomerApprovals";
 import NotFound from "./pages/NotFound";
 import ResetPassword from "./pages/ResetPassword";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import { useEffect, type ReactNode } from "react";
 import Logo from "@/components/Logo";
 import { runDailyAutoBackupIfDue } from "@/lib/backup";
@@ -516,6 +517,7 @@ function AnimatedRoutes() {
         <Route path="/store-login" element={<StoreLogin />} />
         <Route path="/customer-login" element={<CustomerLogin />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
         <Route path="/bill/:token" element={<PublicBill />} />
         <Route path="/store" element={<Store />} />
         <Route path="/pre-orders" element={<PreOrders />} />

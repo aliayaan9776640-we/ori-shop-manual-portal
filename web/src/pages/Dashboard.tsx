@@ -1,4 +1,5 @@
-import { useMemo, useEffect } from "react";
+import { formatDateTime } from "@/lib/format";
+import { useMemo, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import PageHeader from "@/components/PageHeader";
 import Logo from "@/components/Logo";
@@ -570,6 +571,94 @@ function PosQuickBar() {
   );
 }
 
+
+/* -------------------------------------------------------------------------- */
+/*  Bank Transfer Report                                                      */
+/* -------------------------------------------------------------------------- */
+
+function isoDateInput(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function BankTransferReport({ sales }: { sales: Sale[] }) {
+  const today = isoDateInput(new Date());
+  const [fromDate, setFromDate] = useState<string>(today);
+  const [toDate, setToDate] = useState<string>(today);
+
+  const rows = useMemo(() => {
+    const from = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : 0;
+    const to = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Number.MAX_SAFE_INTEGER;
+    return sales
+      .filter((s) => !s.voided && s.paymentMethod === "bank")
+      .filter((s) => {
+        const t = new Date(s.date).getTime();
+        return t >= from && t <= to;
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [sales, fromDate, toDate]);
+
+  const total = rows.reduce((sum, sale) => sum + sale.total, 0);
+
+  return (
+    <div className="pos-card p-5">
+      <SectionTitle
+        title="Bank Transfer Report"
+        hint="Customer name, phone/reference number, amount, and date range"
+        action={<CreditCard className="h-5 w-5 text-primary" />}
+      />
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto]">
+        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          From date
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="mt-1 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground outline-none focus:border-primary"
+          />
+        </label>
+        <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          To date
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="mt-1 h-10 w-full rounded-lg border border-input bg-background px-3 text-sm font-medium text-foreground outline-none focus:border-primary"
+          />
+        </label>
+        <div className="rounded-xl border border-border bg-secondary/40 px-4 py-2 text-right">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total</div>
+          <div className="text-lg font-extrabold text-foreground">{formatCurrency(total)}</div>
+          <div className="text-[10px] text-muted-foreground">{rows.length} transfer{rows.length === 1 ? "" : "s"}</div>
+        </div>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-border">
+        <div className="grid grid-cols-12 gap-2 bg-secondary px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          <div className="col-span-3">Date</div>
+          <div className="col-span-3">Name</div>
+          <div className="col-span-3">Phone / Ref</div>
+          <div className="col-span-3 text-right">Amount</div>
+        </div>
+        <div className="max-h-80 overflow-auto divide-y divide-border bg-card">
+          {rows.length === 0 ? (
+            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+              No bank transfers found for this date range.
+            </div>
+          ) : (
+            rows.map((sale) => (
+              <div key={sale.id} className="grid grid-cols-12 gap-2 px-3 py-2 text-sm">
+                <div className="col-span-3 text-muted-foreground">{formatDateTime(sale.date)}</div>
+                <div className="col-span-3 font-medium text-foreground">{sale.bankTransferName || "—"}</div>
+                <div className="col-span-3 text-muted-foreground">{sale.bankTransferPhone || "—"}</div>
+                <div className="col-span-3 text-right font-bold text-foreground">{formatCurrency(sale.total)}</div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /*  ADMIN dashboard                                                           */
 /* -------------------------------------------------------------------------- */
@@ -801,6 +890,10 @@ function AdminDashboard({ data }: { data: ReturnType<typeof useDashboardData> })
         </div>
         <PaymentMixChart todaysSales={data.todaysSales} />
         <ExpiryAlertsList data={data} />
+      </div>
+
+      <div className="mt-6">
+        <BankTransferReport sales={data.sales} />
       </div>
 
       {/* Stock alerts + cashier summary + activity */}

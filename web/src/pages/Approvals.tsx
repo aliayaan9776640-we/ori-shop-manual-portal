@@ -26,11 +26,22 @@ import {
   AlertTriangle,
   CheckCircle2,
   Package as PackageIcon,
+  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import {
+  useCashDrawers,
+  type CashDrawer,
+  type CashOutRequest,
+} from "@/lib/cashDrawer";
 
-type ModuleKey = "credit" | "purchase_order" | "product";
+type ModuleKey = "credit" | "purchase_order" | "product" | "cash_out";
+
+interface CashOutApprovalRaw {
+  drawer: CashDrawer;
+  request: CashOutRequest;
+}
 
 interface UnifiedRequest {
   id: string;
@@ -40,7 +51,7 @@ interface UnifiedRequest {
   amount?: number;
   requestedBy?: string;
   requestedAt: string;
-  raw: CreditCustomer | PurchaseOrder | Product;
+  raw: CreditCustomer | PurchaseOrder | Product | CashOutApprovalRaw;
 }
 
 export default function Approvals() {
@@ -60,9 +71,19 @@ export default function Approvals() {
   const approvePO = usePurchaseOrders((s) => s.approvePO);
   const rejectPO = usePurchaseOrders((s) => s.rejectPO);
 
+  const drawers = useCashDrawers((s) => s.drawers);
+  const loadDrawers = useCashDrawers((s) => s.load);
+  const drawersLoaded = useCashDrawers((s) => s.loaded);
+  const approveCashOut = useCashDrawers((s) => s.approveCashOut);
+  const rejectCashOut = useCashDrawers((s) => s.rejectCashOut);
+
   useEffect(() => {
     if (!loadedPO) void loadPO();
   }, [loadedPO, loadPO]);
+
+  useEffect(() => {
+    if (!drawersLoaded) void loadDrawers();
+  }, [drawersLoaded, loadDrawers]);
 
   const isAdmin = me?.role === "admin";
 
@@ -157,29 +178,55 @@ export default function Approvals() {
     return { pending, approved, rejected };
   }, [products]);
 
+  const cashOutReq = useMemo(() => {
+    const pending: UnifiedRequest[] = [];
+    const approved: UnifiedRequest[] = [];
+    const rejected: UnifiedRequest[] = [];
+
+    drawers.forEach((drawer) => {
+      (drawer.cashOutRequests ?? []).forEach((request) => {
+        const u: UnifiedRequest = {
+          id: request.id,
+          module: "cash_out",
+          title: `Cash Out Request · ${drawer.openedByName ?? drawer.cashierName}`,
+          subtitle: `${request.purpose} · Drawer opened ${formatDateTime(drawer.openedAt)}`,
+          amount: request.amount,
+          requestedBy: request.requestedByName,
+          requestedAt: request.requestedAt,
+          raw: { drawer, request },
+        };
+        if (request.status === "pending") pending.push(u);
+        else if (request.status === "approved") approved.push(u);
+        else rejected.push(u);
+      });
+    });
+
+    return { pending, approved, rejected };
+  }, [drawers]);
+
   const allPending = useMemo(
     () =>
-      [...credit.pending, ...purchase.pending, ...productReq.pending].sort(
+      [...credit.pending, ...purchase.pending, ...productReq.pending, ...cashOutReq.pending].sort(
         (a, b) =>
           new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
       ),
-    [credit.pending, purchase.pending, productReq.pending]
+    [credit.pending, purchase.pending, productReq.pending, cashOutReq.pending]
   );
   const allApproved = useMemo(
     () =>
-      [...credit.approved, ...purchase.approved, ...productReq.approved].sort(
+      [...credit.approved, ...purchase.approved, ...productReq.approved, ...cashOutReq.approved].sort(
         (a, b) =>
           new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
       ),
-    [credit.approved, purchase.approved, productReq.approved]
+    [credit.approved, purchase.approved, productReq.approved, cashOutReq.approved]
   );
   const allRejected = useMemo(
     () =>
-      [...credit.rejected, ...purchase.rejected, ...productReq.rejected].sort(
+      [...credit.rejected, ...purchase.rejected, ...productReq.rejected, ...cashOutReq.rejected].sort(
         (a, b) =>
           new Date(b.requestedAt).getTime() - new Date(a.requestedAt).getTime()
       ),
-    [credit.rejected, purchase.rejected, productReq.rejected]
+    [credit.rejected, purchase.rejected, productReq.rejected, cashOutReq.rejected]
   );
 
   const list =
@@ -202,7 +249,8 @@ export default function Approvals() {
   const submitCredit = (): void => {
     if (!creditTarget || !creditDecision) return;
     if (creditDecision === "approve") {
-      if (creditLimit <= 0) return toast.error("Set a credit limit first");
+      if (creditLimit <= 0) toast.error("Set a credit limit first");
+      return;
       if (creditNote.trim()) updateCustomer(creditTarget.id, { notes: creditNote });
       approveCustomer(creditTarget.id, creditLimit);
       toast.success(`Approved ${creditTarget.name}`);
@@ -250,11 +298,41 @@ export default function Approvals() {
         await approvePO(poTarget.id);
         toast.success(`Approved ${poTarget.poNo ?? "PO"}`);
       } else {
-        if (!poNote.trim()) return toast.error("Reason is required");
+        if (!poNote.trim()) toast.error("Reason is required");
+      return;
         await rejectPO(poTarget.id, poNote.trim());
         toast.success(`Rejected ${poTarget.poNo ?? "PO"}`);
       }
       closePO();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  const submitCashOut = async (
+    raw: CashOutApprovalRaw,
+    decision: "approve" | "reject"
+  ): Promise<void> => {
+    if (!me) return;
+    const note = window.prompt(
+      decision === "approve" ? "Admin approval note (optional):" : "Reject reason / note (optional):"
+    ) ?? undefined;
+    try {
+      if (decision === "approve") {
+        await approveCashOut(raw.drawer.id, raw.request.id, {
+          id: me.id,
+          name: me.fullName,
+          note,
+        });
+        toast.success("Cash-out request approved");
+      } else {
+        await rejectCashOut(raw.drawer.id, raw.request.id, {
+          id: me.id,
+          name: me.fullName,
+          note,
+        });
+        toast.success("Cash-out request rejected");
+      }
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -313,6 +391,12 @@ export default function Approvals() {
           value={purchase.pending.length}
           icon={POIcon}
           accent="primary"
+        />
+        <Stat
+          label="Cash Out Requests"
+          value={cashOutReq.pending.length}
+          icon={Wallet}
+          accent="amber"
         />
         <Stat
           label="Approved (total)"
@@ -421,6 +505,18 @@ export default function Approvals() {
                       </Link>
                     </Button>
                   )}
+                  {req.module === "cash_out" && (
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                    >
+                      <Link to="/cash-drawer">
+                        <Eye className="h-3.5 w-3.5" /> Drawer
+                      </Link>
+                    </Button>
+                  )}
                   {tab === "pending" && (
                     <>
                       <Button
@@ -430,7 +526,9 @@ export default function Approvals() {
                             openCredit(req.raw as CreditCustomer, "approve");
                           else if (req.module === "purchase_order")
                             openPO(req.raw as PurchaseOrder, "approve");
-                          else openProduct(req.raw as Product, "approve");
+                          else if (req.module === "product")
+                            openProduct(req.raw as Product, "approve");
+                          else void submitCashOut(req.raw as CashOutApprovalRaw, "approve");
                         }}
                         className="gap-1 bg-emerald-600 hover:bg-emerald-700"
                       >
@@ -444,7 +542,9 @@ export default function Approvals() {
                             openCredit(req.raw as CreditCustomer, "reject");
                           else if (req.module === "purchase_order")
                             openPO(req.raw as PurchaseOrder, "reject");
-                          else openProduct(req.raw as Product, "reject");
+                          else if (req.module === "product")
+                            openProduct(req.raw as Product, "reject");
+                          else void submitCashOut(req.raw as CashOutApprovalRaw, "reject");
                         }}
                         className="gap-1 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
                       >
@@ -666,6 +766,13 @@ function ModuleBadge({ module }: { module: ModuleKey }) {
     return (
       <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
         <PackageIcon className="h-4 w-4" />
+      </span>
+    );
+  }
+  if (module === "cash_out") {
+    return (
+      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+        <Wallet className="h-4 w-4" />
       </span>
     );
   }

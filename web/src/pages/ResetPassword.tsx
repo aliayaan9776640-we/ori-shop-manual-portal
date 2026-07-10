@@ -316,7 +316,7 @@ export default function ResetPassword() {
     await supabase.auth.signOut();
 
     setTimeout(() => {
-      navigate("/login", { replace: true });
+      navigate("/customer-login", { replace: true });
     }, 1200);
   };
 

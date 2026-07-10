@@ -1,1307 +1,848 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
+import { useCustomerStore } from "@/lib/onlineStore";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import FileUpload from "@/components/FileUpload";
+import {
+  Search,
+  ShoppingBag,
+  Package,
+  Clock,
+  CheckCircle2,
+  Truck,
+  HelpCircle,
+  Phone,
+  MessageCircle,
+  Minus,
+  Plus,
+  X,
+  CreditCard,
+  UploadCloud,
+  MapPin,
+  Ruler,
+  Camera,
+  FileText,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { LOGO_URL } from "@/components/Logo";
 
-type AdminSection =
-  | "overview"
-  | "reports"
-  | "products"
-  | "upload"
-  | "quotations"
-  | "approval"
-  | "delivery"
-  | "settings";
+type ItemType = "normal" | "garment" | "food" | "vehicle" | "electric";
+type CheckoutStep = "details" | "payment" | "delivery" | "success";
+type PaymentMethod = "bank_transfer" | "bml_gateway";
 
-type Status =
-  | "pending"
-  | "approved"
-  | "rejected"
-  | "accepted"
-  | "processing"
-  | "ready"
-  | "delivering"
-  | "delivered"
-  | "completed";
+type PreorderProduct = {
+  id: string;
+  name: string;
+  description?: string | null;
+  photo_url?: string | null;
+  gallery_urls?: string[] | string | null;
+  product_details?: string | null;
+  specifications?: string | null;
+  usage_info?: string | null;
+  price?: number | null;
+  unit_type?: string | null;
+  minimum_qty?: number | null;
+  sizes?: string | null;
+  category?: string | null;
+  item_type?: string | null;
+  estimated_delivery_date?: string | null;
+  active?: boolean | null;
+  garment_type?: string | null;
+  sub_category?: string | null;
+  fabric?: string | null;
+  colors?: string | null;
+  measurement_fields?: string[] | string | null;
+  allow_custom_measurements?: boolean | null;
+  allow_reference_images?: boolean | null;
+  allow_quotation?: boolean | null;
+  quotation_note?: string | null;
+};
 
-const input =
-  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#153f2f] focus:ring-4 focus:ring-emerald-900/10";
-
-const btnPrimary =
-  "rounded-xl bg-[#556b2f] px-4 py-2 text-sm font-bold text-white hover:bg-[#465925]";
-
-const btnSecondary =
-  "rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-[#153f2f] hover:bg-slate-50";
-
-const btnDanger =
-  "rounded-xl bg-red-700 px-4 py-2 text-sm font-bold text-white hover:bg-red-800";
-
-const money = (value: number) =>
-  `MVR ${Number(value || 0).toLocaleString("en-US", {
+const MVR = (n: number) =>
+  `MVR ${Number(n || 0).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 
-
-const tailoringPresets: Record<string, string> = {
-  "T-Shirt": "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Shirt Length (inch),Neck Size (inch)",
-  Shirt: "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Shirt Length (inch),Neck Size (inch)",
-  Trouser: "Waist (inch),Hip (inch),Thigh (inch),Pant Length (inch),Bottom (inch)",
-  Pants: "Waist (inch),Hip (inch),Thigh (inch),Pant Length (inch),Bottom (inch)",
-  "Tailor Suit": "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Coat Length (inch),Neck Size (inch),Waist (inch),Hip (inch),Thigh (inch),Pant Length (inch),Bottom (inch),Vest Length (inch)",
-  Abaya: "Bust (inch),Waist (inch),Hip (inch),Shoulder Width (inch),Sleeve Length (inch),Dress Length (inch),Arm Round (inch)",
-  Dress: "Bust (inch),Waist (inch),Hip (inch),Shoulder Width (inch),Sleeve Length (inch),Dress Length (inch),Arm Round (inch)",
-  Custom: "",
-};
-
-const parseList = (value?: string | null): string[] =>
+const parseCsv = (value?: string | null): string[] =>
   String(value || "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 
-const commonSizeOptions = ["XS", "S", "M", "L", "XL", "XXL", "3XL", "4XL", "5XL", "Custom"];
-
-const toggleCsvValue = (current: string, value: string): string => {
-  const items = parseList(current);
-  const exists = items.some((item) => item.toLowerCase() === value.toLowerCase());
-  const next = exists ? items.filter((item) => item.toLowerCase() !== value.toLowerCase()) : [...items, value];
-  return next.join(",");
+const parseGalleryUrls = (value: unknown, primary?: string | null): string[] => {
+  const urls: string[] = [];
+  if (primary) urls.push(String(primary));
+  if (Array.isArray(value)) {
+    value.forEach((v) => {
+      if (v) urls.push(String(v));
+    });
+  } else if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((v) => {
+          if (v) urls.push(String(v));
+        });
+      } else {
+        urls.push(value);
+      }
+    } catch {
+      parseCsv(value).forEach((v) => urls.push(v));
+    }
+  }
+  return Array.from(new Set(urls.map((u) => u.trim()).filter(Boolean))).slice(0, 5);
 };
 
-const cleanGallery = (urls: string[]): string[] =>
-  urls.map((u) => String(u || "").trim()).filter(Boolean).slice(0, 5);
+const parseFields = (value: unknown): string[] => {
+  if (Array.isArray(value)) return value.map(String).map((s) => s.trim()).filter(Boolean);
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.map(String).map((s) => s.trim()).filter(Boolean);
+    } catch {
+      return parseCsv(value);
+    }
+  }
+  return [];
+};
 
-const badgeClass = (status: string) => {
-  switch (status) {
-    case "approved":
-    case "accepted":
-    case "delivered":
-    case "completed":
-      return "border-green-200 bg-green-100 text-green-700";
-    case "ready":
-      return "border-blue-200 bg-blue-100 text-blue-700";
-    case "rejected":
-      return "border-red-200 bg-red-100 text-red-700";
-    case "processing":
-    case "delivering":
-      return "border-purple-200 bg-purple-100 text-purple-700";
-    default:
-      return "border-yellow-200 bg-yellow-100 text-yellow-700";
+const getQtyNumber = (value: string) => {
+  if (value.trim() === "") return 1;
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return n;
+};
+
+const normalizeQty = (value: string) => String(Math.max(1, getQtyNumber(value)));
+
+const getItemType = (p?: PreorderProduct | null): ItemType => {
+  const text = `${p?.item_type || ""} ${p?.category || ""} ${p?.garment_type || ""} ${p?.sub_category || ""}`.toLowerCase();
+  if (text.includes("food")) return "food";
+  if (text.includes("vehicle") || text.includes("car") || text.includes("spare") || text.includes("part")) return "vehicle";
+  if (text.includes("electric") || text.includes("electronic")) return "electric";
+  if (text.includes("garment") || text.includes("tailor") || text.includes("shirt") || text.includes("t-shirt") || text.includes("tshirt") || text.includes("dress") || text.includes("abaya") || text.includes("trouser") || text.includes("pant") || text.includes("suit")) return "garment";
+  return "normal";
+};
+
+const defaultFieldsByType = (p?: PreorderProduct | null): string[] => {
+  const own = parseFields(p?.measurement_fields);
+  if (own.length) return own;
+
+  const type = getItemType(p);
+  const garment = String(p?.garment_type || "").toLowerCase();
+
+  if (type === "garment") {
+    if (garment.includes("suit")) {
+      return [
+        "Coat: Chest", "Coat: Shoulder", "Coat: Sleeve Length", "Coat: Length", "Coat: Neck",
+        "Pant: Waist", "Pant: Hip", "Pant: Thigh", "Pant: Length", "Pant: Bottom",
+        "Vest: Chest", "Vest: Length",
+      ];
+    }
+    if (garment.includes("trouser") || garment.includes("pant")) {
+      return ["Waist", "Hip", "Thigh", "Pant Length", "Bottom Width"];
+    }
+    if (garment.includes("dress") || garment.includes("abaya")) {
+      return ["Bust", "Waist", "Hip", "Shoulder", "Sleeve Length", "Dress Length", "Arm Round"];
+    }
+    return ["Chest", "Shoulder", "Sleeve Length", "Shirt Length", "Neck", "Width", "Length"];
+  }
+
+  if (type === "food") {
+    return ["Preferred Brand", "Packing Size", "Quantity Needed", "Expiry Preference", "Flavor / Type", "Special Note"];
+  }
+
+  if (type === "vehicle") {
+    return ["Vehicle Brand", "Vehicle Model", "Year", "Chassis Number", "Part Number", "Part Name", "Engine / Size", "Side / Position"];
+  }
+
+  if (type === "electric") {
+    return ["Brand", "Model Number", "Voltage", "Watts", "Plug Type", "Color", "Specification"];
+  }
+
+  return [];
+};
+
+const getOptionsTitle = (type: ItemType) => {
+  if (type === "garment") return "Garment / Tailoring Measurements";
+  if (type === "food") return "Food Item Details";
+  if (type === "vehicle") return "Vehicle / Spare Part Details";
+  if (type === "electric") return "Electric / Electronic Details";
+  return "Additional Details";
+};
+
+const addAmountToGatewayUrl = (rawUrl: string, amount: number, itemName: string) => {
+  if (!rawUrl) return "";
+  try {
+    const url = new URL(rawUrl);
+    url.searchParams.set("amount", amount.toFixed(2));
+    url.searchParams.set("currency", "MVR");
+    url.searchParams.set("description", itemName);
+    return url.toString();
+  } catch {
+    const joiner = rawUrl.includes("?") ? "&" : "?";
+    return `${rawUrl}${joiner}amount=${encodeURIComponent(amount.toFixed(2))}&currency=MVR&description=${encodeURIComponent(itemName)}`;
   }
 };
 
-export default function PreorderAdmin() {
-  const [activeSection, setActiveSection] = useState<AdminSection>("overview");
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [orders, setOrders] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [settings, setSettings] = useState({
-    bank_name: "",
-    account_name: "",
-    account_number: "",
-    payment_note: "",
-    bml_enabled: false,
-    bml_gateway_url: "",
-    banner_url: "",
-    banner_title: "",
-    banner_subtitle: "",
-  });
-  const [filter, setFilter] = useState("all");
+export default function PreOrders() {
+  const bootstrap = useCustomerStore((s) => s.bootstrap);
+  const navigate = useNavigate();
+
+  const [products, setProducts] = useState<PreorderProduct[]>([]);
+  const [settings, setSettings] = useState<any | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<PreorderProduct | null>(null);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [step, setStep] = useState<CheckoutStep>("details");
+  const [submitting, setSubmitting] = useState(false);
+  const [detectingLocation, setDetectingLocation] = useState(false);
+
   const [form, setForm] = useState({
-    name: "",
-    description: "",
-    photo_url: "",
-    gallery_urls: ["", "", "", "", ""] as string[],
-    product_details: "",
-    specifications: "",
-    usage_info: "",
-    estimated_delivery_date: "",
-    price: "",
-    unit_type: "piece",
-    minimum_qty: "1",
-    sizes: "",
-    item_type: "normal",
-    category: "Normal",
-    garment_type: "",
-    sub_category: "",
-    fabric: "",
-    colors: "",
-    measurement_fields: "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Coat Length (inch),Neck Size (inch),Waist (inch)",
-    allow_custom_measurements: true,
-    allow_reference_images: true,
-    allow_quotation: true,
-    quotation_note: "",
+    customer_name: "",
+    customer_phone: "",
+    customer_island: "",
+    delivery_address: "",
+    current_location_text: "",
+    current_location_url: "",
+    current_latitude: null as number | null,
+    current_longitude: null as number | null,
+    delivery_note: "",
+    qty: "1",
+    selected_size: "",
+    selected_color: "",
+    measurement_values: {} as Record<string, string>,
+    reference_image_url: "",
+    customer_note: "",
+    payment_slip_url: "",
+    payment_method: "bank_transfer" as PaymentMethod,
   });
 
   const load = async () => {
-    const [ordersRes, productsRes, settingsRes] = await Promise.all([
-      supabase.from("preorder_orders").select("*").order("created_at", { ascending: false }),
-      supabase.from("preorder_products").select("*").order("created_at", { ascending: false }),
+    const [productsRes, settingsRes] = await Promise.all([
+      supabase.from("preorder_products").select("*").eq("active", true).order("created_at", { ascending: false }),
       supabase.from("preorder_settings").select("*").limit(1).maybeSingle(),
     ]);
-
-    setOrders(ordersRes.data || []);
-    setProducts(productsRes.data || []);
-
-    if (settingsRes.data) {
-      setSettings({
-        bank_name: settingsRes.data.bank_name || "",
-        account_name: settingsRes.data.account_name || "",
-        account_number: settingsRes.data.account_number || "",
-        payment_note: settingsRes.data.payment_note || "",
-        bml_enabled: !!settingsRes.data.bml_enabled,
-        bml_gateway_url: settingsRes.data.bml_gateway_url || "",
-        banner_url: settingsRes.data.banner_url || "",
-        banner_title: settingsRes.data.banner_title || "",
-        banner_subtitle: settingsRes.data.banner_subtitle || "",
-      });
-    }
+    setProducts((productsRes.data || []) as PreorderProduct[]);
+    setSettings(settingsRes.data || null);
   };
 
   useEffect(() => {
+    void bootstrap();
     void load();
     const channel = supabase
-      .channel("preorder-admin-dashboard")
-      .on("postgres_changes", { event: "*", schema: "public", table: "preorder_orders" }, () => void load())
+      .channel("preorder-page-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "preorder_products" }, () => void load())
       .on("postgres_changes", { event: "*", schema: "public", table: "preorder_settings" }, () => void load())
       .subscribe();
-
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [bootstrap]);
 
-  const productMap = useMemo(() => {
-    const map: Record<string, any> = {};
+  const categories = useMemo(() => {
+    const set = new Set<string>();
     products.forEach((p) => {
-      map[p.id] = p;
+      if (p.category) set.add(p.category);
     });
-    return map;
+    return Array.from(set).sort();
   }, [products]);
 
-  const filteredOrders = useMemo(() => {
-    if (filter === "all") return orders;
-    return orders.filter(
-      (o) =>
-        o.payment_status === filter ||
-        o.order_status === filter ||
-        o.tracking_status === filter
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return products.filter((p) => {
+      if (selectedCategory !== "all" && p.category !== selectedCategory) return false;
+      if (!q) return true;
+      return p.name.toLowerCase().includes(q) || (p.description || "").toLowerCase().includes(q) || (p.category || "").toLowerCase().includes(q);
+    });
+  }, [products, selectedCategory, search]);
+
+  const selectedSizes = selected ? parseCsv(selected.sizes) : [];
+  const selectedColors = selected ? parseCsv(selected.colors) : [];
+  const selectedGallery = selected ? parseGalleryUrls(selected.gallery_urls, selected.photo_url) : [];
+  const itemType = getItemType(selected);
+  const requiredFields = selected ? defaultFieldsByType(selected) : [];
+  const showExtraOptions = !!selected && (itemType !== "normal" || requiredFields.length > 0 || selectedColors.length > 0 || selected.allow_reference_images || selected.allow_quotation || selected.allow_custom_measurements);
+
+  const displayQty = getQtyNumber(form.qty);
+  const unitPrice = Number(selected?.price || 0);
+  const total = unitPrice * displayQty;
+  const bmlUrl = selected ? addAmountToGatewayUrl(settings?.bml_gateway_url || "", total, selected.name) : "";
+
+  const ensureCustomer = async () => {
+    await bootstrap();
+    const latest = useCustomerStore.getState().customer;
+    if (!latest?.id) {
+      alert("Please sign in before placing a pre-order.");
+      navigate("/customer-login?next=/store");
+      return null;
+    }
+    return latest;
+  };
+
+  const openPreorder = async (item: PreorderProduct) => {
+    const latest = await ensureCustomer();
+    if (!latest) return;
+    const sizes = parseCsv(item.sizes);
+    const colors = parseCsv(item.colors);
+    setSelected(item);
+    setGalleryIndex(0);
+    setStep("details");
+    setSubmitting(false);
+    setForm({
+      customer_name: latest.name || "",
+      customer_phone: latest.phone || "",
+      customer_island: latest.island || latest.address || "",
+      delivery_address: latest.address || latest.island || "",
+      current_location_text: "",
+      current_location_url: "",
+      current_latitude: null,
+      current_longitude: null,
+      delivery_note: "",
+      qty: "1",
+      selected_size: sizes[0] || "",
+      selected_color: colors[0] || "",
+      measurement_values: {},
+      reference_image_url: "",
+      customer_note: "",
+      payment_slip_url: "",
+      payment_method: "bank_transfer",
+    });
+  };
+
+  const detectCurrentLocation = (): void => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      alert("Location tracking is not supported on this device/browser.");
+      return;
+    }
+    setDetectingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        setForm((prev) => ({
+          ...prev,
+          current_location_text: `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+          current_location_url: `https://www.google.com/maps?q=${lat},${lng}`,
+          current_latitude: lat,
+          current_longitude: lng,
+        }));
+        setDetectingLocation(false);
+      },
+      () => {
+        setDetectingLocation(false);
+        alert("Location permission denied. You can still enter delivery address manually.");
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
-  }, [orders, filter]);
+  };
 
-  const totals = useMemo(() => {
-    const totalOrders = filteredOrders.length;
-    const totalQty = filteredOrders.reduce((sum, o) => sum + Number(o.qty || 0), 0);
-    const totalValue = filteredOrders.reduce((sum, o) => sum + Number(o.agreed_price || 0), 0);
-    const pending = filteredOrders.filter(
-      (o) =>
-        o.payment_status === "pending" ||
-        o.order_status === "pending" ||
-        o.tracking_status === "pending"
-    ).length;
+  const validateDetails = () => {
+    if (!form.customer_name.trim()) return "Customer name is required.";
+    if (!form.customer_phone.trim()) return "Phone number is required.";
+    if (!form.customer_island.trim()) return "Island / address is required.";
+    if (displayQty < 1) return "Quantity must be at least 1.";
+    return "";
+  };
 
-    const paymentPending = filteredOrders.filter((o) => o.payment_status === "pending").length;
-    const orderApproval = filteredOrders.filter((o) => o.order_status === "pending").length;
-    const ready = filteredOrders.filter((o) => o.tracking_status === "ready").length;
-    const delivered = filteredOrders.filter(
-      (o) => o.tracking_status === "delivered" || o.order_status === "completed"
-    ).length;
+  const buildCustomerNote = () => {
+    const details = Object.entries(form.measurement_values)
+      .filter(([, value]) => value.trim())
+      .map(([key, value]) => `${key}: ${value.trim()}`);
+    return [
+      form.customer_note.trim(),
+      form.selected_color ? `Selected color/option: ${form.selected_color}` : "",
+      details.length ? `Submitted details:\n${details.join("\n")}` : "",
+      form.reference_image_url ? `Reference image: ${form.reference_image_url}` : "",
+      form.delivery_note.trim() ? `Delivery note: ${form.delivery_note.trim()}` : "",
+    ].filter(Boolean).join("\n\n");
+  };
 
-    return { totalOrders, totalQty, totalValue, pending, paymentPending, orderApproval, ready, delivered };
-  }, [filteredOrders]);
-
-  const saveSettings = async () => {
-    const existing = await supabase.from("preorder_settings").select("id").limit(1).maybeSingle();
-    const payload = {
-      bank_name: settings.bank_name,
-      account_name: settings.account_name,
-      account_number: settings.account_number,
-      payment_note: settings.payment_note,
-      bml_enabled: settings.bml_enabled,
-      bml_gateway_url: settings.bml_gateway_url,
-      banner_url: settings.banner_url,
-      banner_title: settings.banner_title,
-      banner_subtitle: settings.banner_subtitle,
+  const buildOrderPayload = async (requestType: "order" | "quotation") => {
+    if (!selected) return null;
+    const latest = await ensureCustomer();
+    if (!latest) return null;
+    return {
+      customer_id: latest.id,
+      preorder_product_id: selected.id,
+      customer_name: form.customer_name.trim() || latest.name,
+      customer_phone: form.customer_phone.trim() || latest.phone,
+      customer_island: form.customer_island.trim(),
+      delivery_address: form.delivery_address.trim() || form.customer_island.trim(),
+      current_location_text: form.current_location_text || null,
+      current_location_url: form.current_location_url || null,
+      current_latitude: form.current_latitude,
+      current_longitude: form.current_longitude,
+      qty: displayQty,
+      unit_type: selected.unit_type || "piece",
+      selected_size: form.selected_size,
+      selected_color: form.selected_color || null,
+      measurement_data: form.measurement_values,
+      reference_image_url: form.reference_image_url || null,
+      agreed_price: requestType === "quotation" ? 0 : total,
+      estimated_delivery_date: selected.estimated_delivery_date,
+      customer_note: buildCustomerNote(),
+      payment_method: requestType === "quotation" ? "quotation" : form.payment_method,
+      payment_slip_url: requestType === "quotation" ? null : form.payment_slip_url,
+      payment_status: requestType === "quotation" ? "quotation_pending" : "pending",
+      order_status: requestType === "quotation" ? "quotation_requested" : "pending",
+      tracking_status: "pending",
+      request_type: requestType,
+      quotation_status: requestType === "quotation" ? "pending" : null,
     };
+  };
 
-    const { error } = existing.data?.id
-      ? await supabase.from("preorder_settings").update(payload).eq("id", existing.data.id)
-      : await supabase.from("preorder_settings").insert(payload);
-
+  const requestQuotation = async () => {
+    const message = validateDetails();
+    if (message) return alert(message);
+    setSubmitting(true);
+    const payload = await buildOrderPayload("quotation");
+    if (!payload) {
+      setSubmitting(false);
+      return;
+    }
+    const { error } = await supabase.from("preorder_orders").insert(payload);
+    setSubmitting(false);
     if (error) return alert(error.message);
-    alert("Payment settings saved");
-    await load();
+    alert("Quotation request submitted. Admin will review and send quotation.");
+    setSelected(null);
+    setStep("details");
+    void load();
   };
 
-  const startEditProduct = (p: any) => {
-    const rawGallery = Array.isArray(p.gallery_urls) ? p.gallery_urls : [];
-    const galleryUrls = cleanGallery(rawGallery);
-    const paddedGallery = [...galleryUrls, "", "", "", "", ""].slice(0, 5);
+  const submitOrder = async () => {
+    const message = validateDetails();
+    if (message) {
+      alert(message);
+      setStep("details");
+      return;
+    }
+    if (form.payment_method === "bank_transfer" && !form.payment_slip_url) {
+      alert("Please upload the payment slip before submitting.");
+      setStep("payment");
+      return;
+    }
+    if (!form.delivery_address.trim()) {
+      alert("Please enter delivery information.");
+      setStep("delivery");
+      return;
+    }
+    setSubmitting(true);
+    const payload = await buildOrderPayload("order");
+    if (!payload) {
+      setSubmitting(false);
+      return;
+    }
+    const { data: createdOrder, error } = await supabase
+      .from("preorder_orders")
+      .insert(payload)
+      .select("id, payment_method")
+      .single();
 
-    setEditingProductId(p.id);
-    setForm({
-      name: p.name || "",
-      description: p.description || "",
-      photo_url: p.photo_url || galleryUrls[0] || "",
-      gallery_urls: paddedGallery,
-      product_details: p.product_details || "",
-      specifications: p.specifications || "",
-      usage_info: p.usage_info || "",
-      estimated_delivery_date: p.estimated_delivery_date || "",
-      price: String(p.price || ""),
-      unit_type: p.unit_type || "piece",
-      minimum_qty: String(p.minimum_qty || "1"),
-      sizes: p.sizes || "",
-      item_type: p.item_type || "normal",
-      category: p.category || "Normal",
-      garment_type: p.garment_type || "",
-      sub_category: p.sub_category || "",
-      fabric: p.fabric || "",
-      colors: p.colors || "",
-      measurement_fields: Array.isArray(p.measurement_fields)
-        ? p.measurement_fields.join(",")
-        : String(p.measurement_fields || ""),
-      allow_custom_measurements: p.allow_custom_measurements ?? true,
-      allow_reference_images: p.allow_reference_images ?? true,
-      allow_quotation: p.allow_quotation ?? true,
-      quotation_note: p.quotation_note || "",
-    });
-    setActiveSection("upload");
-  };
+    if (error) {
+      setSubmitting(false);
+      return alert(error.message);
+    }
 
-  const submitItem = async () => {
-    if (!form.name.trim()) return alert("Item name required");
-    if (!form.price || Number(form.price) <= 0) return alert("Valid price required");
+    if (createdOrder?.payment_method === "bml_gateway") {
+      const { data: bmlData, error: bmlError } = await supabase.functions.invoke(
+        "create-bml-payment",
+        {
+          body: {
+            order_id: createdOrder.id,
+            order_type: "preorder",
+          },
+        }
+      );
 
-    const galleryUrls = cleanGallery(form.gallery_urls);
-    const primaryPhoto = form.photo_url || galleryUrls[0] || "";
+      setSubmitting(false);
 
-    const payload = {
-      name: form.name.trim(),
-      description: form.description.trim(),
-      photo_url: primaryPhoto,
-      gallery_urls: galleryUrls,
-      product_details: form.product_details.trim() || null,
-      specifications: form.specifications.trim() || null,
-      usage_info: form.usage_info.trim() || null,
-      estimated_delivery_date: form.estimated_delivery_date || null,
-      price: Number(form.price || 0),
-      unit_type: form.unit_type || "piece",
-      minimum_qty: Math.max(1, Number(form.minimum_qty || 1)),
-      sizes: form.sizes.trim(),
-      item_type: form.item_type || "normal",
-      category: form.category.trim() || null,
-      garment_type: form.garment_type.trim() || null,
-      sub_category: form.sub_category.trim() || null,
-      fabric: form.fabric.trim() || null,
-      colors: form.colors.trim() || null,
-      measurement_fields: parseList(form.measurement_fields),
-      allow_custom_measurements: form.allow_custom_measurements,
-      allow_reference_images: form.allow_reference_images,
-      allow_quotation: form.allow_quotation,
-      quotation_note: form.quotation_note.trim() || null,
-      active: true,
-    };
+      if (bmlError) {
+        return alert(bmlError.message || "BML payment could not be started.");
+      }
 
-    const { error } = editingProductId
-      ? await supabase.from("preorder_products").update(payload).eq("id", editingProductId)
-      : await supabase.from("preorder_products").insert(payload);
-    if (error) return alert(error.message);
+      if (!bmlData?.payment_url) {
+        return alert("BML payment URL was not returned.");
+      }
 
-    alert(editingProductId ? "Pre-order item updated" : "Pre-order item saved");
-    setEditingProductId(null);
-    setForm({
-      name: "",
-      description: "",
-      photo_url: "",
-      gallery_urls: ["", "", "", "", ""],
-      product_details: "",
-      specifications: "",
-      usage_info: "",
-      estimated_delivery_date: "",
-      price: "",
-      unit_type: "piece",
-      minimum_qty: "1",
-      sizes: "",
-      item_type: "normal",
-      category: "Normal",
-      garment_type: "",
-      sub_category: "",
-      fabric: "",
-      colors: "",
-      measurement_fields: "Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Coat Length (inch),Neck Size (inch),Waist (inch)",
-      allow_custom_measurements: true,
-      allow_reference_images: true,
-      allow_quotation: true,
-      quotation_note: "",
-    });
-    await load();
-  };
-
-  const toggleProduct = async (id: string, active: boolean) => {
-    const { error } = await supabase.from("preorder_products").update({ active }).eq("id", id);
-    if (error) alert(error.message);
-    await load();
-  };
-
-  const deleteProduct = async (id: string) => {
-    if (!confirm("Delete this pre-order item?")) return;
-    const { error } = await supabase.from("preorder_products").delete().eq("id", id);
-    if (error) alert(error.message);
-    await load();
-  };
-
-  const updateOrder = async (id: string, patch: any) => {
-    const { error } = await supabase.from("preorder_orders").update(patch).eq("id", id);
-    if (error) return alert(error.message);
-    await load();
-  };
-
-  const sendQuotation = async (id: string, price: string | number, note: string) => {
-    const amount = Number(price || 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      alert("Please enter a valid quotation price.");
+      window.location.href = bmlData.payment_url;
       return;
     }
 
-    const { error } = await supabase
-      .from("preorder_orders")
-      .update({
-        agreed_price: amount,
-        quotation_price: amount,
-        quotation_note: note || null,
-        quotation_status: "sent",
-        order_status: "quotation_sent",
-        payment_status: "quotation_sent",
-        quoted_at: new Date().toISOString(),
-      })
-      .eq("id", id);
-
-    if (error) return alert(error.message);
-    alert("Quotation sent to customer.");
-    await load();
+    setSubmitting(false);
+    alert("Order submitted successfully.");
+    setSelected(null);
+    setStep("details");
+    void load();
   };
 
-  const deleteOrder = async (id: string) => {
-    if (!confirm("Delete this pre-order order?")) return;
-    const { error } = await supabase.from("preorder_orders").delete().eq("id", id);
-    if (error) return alert(error.message);
-    await load();
-  };
-
-  const approvePayment = (id: string) =>
-    updateOrder(id, { payment_status: "approved", order_status: "accepted" });
-
-  const rejectPayment = (id: string) =>
-    updateOrder(id, { payment_status: "rejected", order_status: "rejected" });
-
-  const exportExcel = () => {
-    const headers = [
-      "Customer",
-      "Phone",
-      "Island",
-      "Delivery Address",
-      "Item",
-      "Qty",
-      "Size",
-      "Color / Option",
-      "Submitted Details",
-      "Reference Image",
-      "Quotation Status",
-      "Quotation Price",
-      "Total",
-      "Payment Method",
-      "Payment",
-      "Order",
-      "Tracking",
-      "Delivery",
-      "Admin Note",
-    ];
-
-    const csvEscape = (value: unknown): string => {
-      const text = String(value ?? "");
-      return `"${text.replace(/"/g, '""')}"`;
-    };
-
-    const rows = filteredOrders.map((o) => {
-      const p = productMap[o.preorder_product_id];
-      return [
-        o.customer_name || "",
-        o.customer_phone || "",
-        o.customer_island || "",
-        o.delivery_address || "",
-        p?.name || "Pre-order item",
-        o.qty || "",
-        o.selected_size || "",
-        o.selected_color || "",
-        Object.entries(o.measurement_data || {}).map(([k, v]) => `${k}: ${v}`).join(" | "),
-        o.reference_image_url || "",
-        o.quotation_status || "",
-        o.quotation_price || "",
-        o.agreed_price || "",
-        o.payment_method || "",
-        o.payment_status || "",
-        o.order_status || "",
-        o.tracking_status || "",
-        o.admin_delivery_date || o.estimated_delivery_date || "",
-        o.admin_note || "",
-      ];
-    });
-
-    const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `preorder-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const exportPdf = () => {
-    const rows = filteredOrders
-      .map((o) => {
-        const p = productMap[o.preorder_product_id];
-        return `
-          <tr>
-            <td>${o.customer_name || ""}</td>
-            <td>${o.customer_phone || ""}</td>
-            <td>${p?.name || "Pre-order item"}</td>
-            <td>${o.qty || ""}</td>
-            <td>${money(Number(o.agreed_price || 0))}</td>
-            <td>${o.payment_method || ""}</td>
-            <td>${o.payment_status || ""}</td>
-            <td>${o.order_status || ""}</td>
-            <td>${o.tracking_status || ""}</td>
-            <td>${o.admin_delivery_date || o.estimated_delivery_date || ""}</td>
-          </tr>
-        `;
-      })
-      .join("");
-
-    const win = window.open("", "_blank");
-    if (!win) return;
-
-    win.document.write(`
-      <html>
-        <head>
-          <title>Pre-Order Report</title>
-          <style>
-            body { font-family: Arial; padding: 24px; }
-            h1 { color: #153f2f; }
-            table { width: 100%; border-collapse: collapse; font-size: 11px; }
-            th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
-            th { background: #153f2f; color: white; }
-          </style>
-        </head>
-        <body>
-          <h1>Ori Barakah Store - Pre-Order Report</h1>
-          <p>Total Orders: ${totals.totalOrders}</p>
-          <p>Total Qty: ${totals.totalQty}</p>
-          <p>Total Value: ${money(totals.totalValue)}</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Customer</th><th>Phone</th><th>Item</th><th>Qty</th>
-                <th>Total</th><th>Method</th><th>Payment</th><th>Order</th>
-                <th>Tracking</th><th>Delivery</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-          <script>window.onload = function(){ window.print(); }</script>
-        </body>
-      </html>
-    `);
-    win.document.close();
-  };
-
-  const menuItems: { key: AdminSection; label: string; sub?: string }[] = [
-    { key: "overview", label: "Overview", sub: "Dashboard summary" },
-    { key: "reports", label: "Reports", sub: "Export and filter" },
-    { key: "products", label: "Pre-Order Products", sub: "View and manage" },
-    { key: "upload", label: "Upload Pre-Order Items", sub: "Add new item" },
-    { key: "quotations", label: "Quotation Requests", sub: "Review and send price" },
-    { key: "approval", label: "Order Approval", sub: "Payment and order approval" },
-    { key: "delivery", label: "Delivery Updates", sub: "Status, dates and notes" },
-    { key: "settings", label: "Settings", sub: "Payment and banner" },
-  ];
-
   return (
-    <div className="min-h-screen bg-[#faf8f3] p-4 text-slate-800 md:p-8">
-      <style>{`@keyframes preorderTabIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }`}</style>
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="text-3xl font-extrabold text-[#153f2f]">
-              Pre-Order Admin Dashboard
-            </h1>
-            <p className="text-sm text-slate-500">
-              Manage only pre-order products, reports, approvals, delivery updates and pre-order settings.
-            </p>
-          </div>
-          <button className={btnSecondary} onClick={() => void load()}>
-            Refresh
-          </button>
-        </div>
-
-        <div className="grid gap-5 lg:grid-cols-[270px_minmax(0,1fr)]">
-          <aside className="rounded-2xl border bg-white p-3 shadow-sm lg:sticky lg:top-6 lg:self-start">
-            <div className="px-3 py-2 text-xs font-extrabold uppercase tracking-wider text-slate-400">
-              Pre-Order Admin
-            </div>
-            <nav className="space-y-1">
-              {menuItems.map((item) => {
-                const active = activeSection === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => setActiveSection(item.key)}
-                    className={
-                      active
-                        ? "w-full rounded-xl bg-[#153f2f] px-4 py-3 text-left text-white shadow-sm"
-                        : "w-full rounded-xl px-4 py-3 text-left text-slate-700 hover:bg-slate-50"
-                    }
-                  >
-                    <div className="text-sm font-extrabold">{item.label}</div>
-                    {item.sub && (
-                      <div className={active ? "text-xs text-white/70" : "text-xs text-slate-400"}>
-                        {item.sub}
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div className="mt-4 rounded-xl bg-orange-50 p-4 text-xs text-orange-800">
-              Standalone pre-order module only. No POS or inventory linking.
-            </div>
-          </aside>
-
-          <main className="space-y-6">
-            <div key={activeSection} className="space-y-6" style={{ animation: "preorderTabIn 220ms ease-out" }}>
-            {activeSection === "overview" && (
-              <Section title="Overview">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <SummaryCard title="Orders" value={totals.totalOrders} />
-                  <SummaryCard title="Total Qty" value={totals.totalQty} />
-                  <SummaryCard title="Total Value" value={money(totals.totalValue)} />
-                  <SummaryCard title="Pending" value={totals.pending} />
-                  <SummaryCard title="Payment Pending" value={totals.paymentPending} />
-                  <SummaryCard title="Order Approval" value={totals.orderApproval} />
-                  <SummaryCard title="Ready" value={totals.ready} />
-                  <SummaryCard title="Delivered" value={totals.delivered} />
-                </div>
-              </Section>
-            )}
-
-            {activeSection === "reports" && (
-              <Section title="Reports">
-                <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <select className={input + " md:w-64"} value={filter} onChange={(e) => setFilter(e.target.value)}>
-                    <option value="all">All Orders</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Payment Approved</option>
-                    <option value="accepted">Order Accepted</option>
-                    <option value="processing">Processing</option>
-                    <option value="ready">Ready</option>
-                    <option value="delivering">Delivering</option>
-                    <option value="delivered">Delivered</option>
-                    <option value="quotation_pending">Quotation Pending</option>
-                    <option value="quotation_sent">Quotation Sent</option>
-                    <option value="rejected">Rejected</option>
-                  </select>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button className={btnSecondary} onClick={() => void load()}>Refresh</button>
-                    <button className={btnPrimary} onClick={exportExcel}>Export Excel</button>
-                    <button className={btnPrimary} onClick={exportPdf}>Export PDF</button>
-                  </div>
-                </div>
-
-                <ReportTable orders={filteredOrders} productMap={productMap} />
-              </Section>
-            )}
-
-            {activeSection === "products" && (
-              <Section title="Pre-Order Products">
-                {products.length === 0 ? (
-                  <Empty text="No pre-order products added yet." />
-                ) : (
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {products.map((p) => (
-                      <div key={p.id} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-                        <div className="h-44 bg-slate-100">
-                          {p.photo_url ? (
-                            <img src={p.photo_url} className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="flex h-full items-center justify-center text-sm text-slate-400">No Image</div>
-                          )}
-                        </div>
-                        <div className="space-y-2 p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="font-bold text-[#153f2f]">{p.name}</div>
-                              <div className="text-xs text-slate-500">{p.category || "Pre-order"}</div>
-                            </div>
-                            <Badge status={p.active ? "approved" : "pending"} />
-                          </div>
-                          <div className="text-lg font-extrabold text-orange-600">{money(Number(p.price || 0))}</div>
-                          <div className="text-xs text-slate-500">
-                            Min Qty: {p.minimum_qty || 1} · Unit: {p.unit_type || "piece"} · Sizes: {p.sizes || "-"}
-                          </div>
-                          {Array.isArray(p.gallery_urls) && p.gallery_urls.length > 0 && (
-                            <div className="text-xs font-semibold text-emerald-700">
-                              {p.gallery_urls.filter(Boolean).length} product photo{p.gallery_urls.filter(Boolean).length === 1 ? "" : "s"} uploaded
-                            </div>
-                          )}
-                          {(p.product_details || p.specifications || p.usage_info) && (
-                            <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-900">
-                              {p.product_details && <div><b>Info:</b> {String(p.product_details).slice(0, 90)}{String(p.product_details).length > 90 ? "…" : ""}</div>}
-                              {p.specifications && <div><b>Specs:</b> {String(p.specifications).slice(0, 90)}{String(p.specifications).length > 90 ? "…" : ""}</div>}
-                              {p.usage_info && <div><b>Usage:</b> {String(p.usage_info).slice(0, 90)}{String(p.usage_info).length > 90 ? "…" : ""}</div>}
-                            </div>
-                          )}
-                          {(p.garment_type || p.fabric || p.colors || p.allow_quotation) && (
-                            <div className="rounded-xl bg-purple-50 p-3 text-xs text-purple-900">
-                              <div><b>Garment:</b> {p.garment_type || "-"}</div>
-                              <div><b>Fabric:</b> {p.fabric || "-"}</div>
-                              <div><b>Colors:</b> {p.colors || "-"}</div>
-                              <div><b>Quotation:</b> {p.allow_quotation ? "Allowed" : "No"}</div>
-                            </div>
-                          )}
-                          <div className="flex gap-2 pt-2">
-                            <button className={btnPrimary} onClick={() => startEditProduct(p)}>
-                              Edit
-                            </button>
-                            <button className={btnSecondary} onClick={() => toggleProduct(p.id, !p.active)}>
-                              {p.active ? "Disable" : "Enable"}
-                            </button>
-                            <button className={btnDanger} onClick={() => deleteProduct(p.id)}>
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Section>
-            )}
-
-            {activeSection === "upload" && (
-              <Section title={editingProductId ? "Edit Pre-Order Item" : "Upload Pre-Order Items"}>
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <input className={input} placeholder="Item Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                  <select
-                    className={input}
-                    value={form.item_type}
-                    onChange={(e) => {
-                      const itemType = e.target.value;
-                      setForm({
-                        ...form,
-                        item_type: itemType,
-                        category:
-                          itemType === "garment" ? "Garments" :
-                          itemType === "food" ? "Food" :
-                          itemType === "vehicle" ? "Vehicle" :
-                          itemType === "electric" ? "Electronics" : "Normal",
-                        allow_reference_images: itemType !== "normal",
-                        allow_quotation: itemType !== "normal",
-                        measurement_fields:
-                          itemType === "food" ? "Preferred Brand,Packing Size,Quantity Needed,Expiry Preference,Flavor / Type,Special Note" :
-                          itemType === "vehicle" ? "Vehicle Brand,Vehicle Model,Year,Chassis Number,Part Number,Part Name,Engine / Size,Side / Position" :
-                          itemType === "electric" ? "Brand,Model Number,Voltage,Watts,Plug Type,Color,Specification" : form.measurement_fields,
-                      });
-                    }}
-                  >
-                    <option value="normal">Normal Item</option>
-                    <option value="garment">Garment / Tailoring</option>
-                    <option value="food">Food Item</option>
-                    <option value="vehicle">Vehicle / Spare Part</option>
-                    <option value="electric">Electric / Electronic</option>
-                  </select>
-                  <select className={input} value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                    <option value="Normal">Normal</option>
-                    <option value="Garments">Garments</option>
-                    <option value="Food">Food</option>
-                    <option value="Vehicle">Vehicle</option>
-                    <option value="Electronics">Electronics</option>
-                  </select>
-
-                  {form.item_type === "garment" && (
-                    <select
-                      className={input}
-                      value={form.garment_type}
-                      onChange={(e) => {
-                        const garmentType = e.target.value;
-                        setForm({
-                          ...form,
-                          garment_type: garmentType,
-                          measurement_fields: tailoringPresets[garmentType] ?? form.measurement_fields,
-                        });
-                      }}
-                    >
-                      <option value="">Garment Type</option>
-                      <option value="T-Shirt">T-Shirt</option>
-                      <option value="Shirt">Shirt</option>
-                      <option value="Tailor Suit">Tailor Suit</option>
-                      <option value="Trouser">Trouser</option>
-                      <option value="Pants">Pants</option>
-                      <option value="Abaya">Abaya</option>
-                      <option value="Dress">Dress</option>
-                      <option value="Custom">Custom</option>
-                    </select>
-                  )}
-
-                  <input className={input} placeholder="Sub Category e.g. 3-Piece Coat + Pant + Vest" value={form.sub_category} onChange={(e) => setForm({ ...form, sub_category: e.target.value })} />
-                  <input className={input} placeholder="Fabric e.g. Imported Wool, Cotton" value={form.fabric} onChange={(e) => setForm({ ...form, fabric: e.target.value })} />
-                  <input className={input} placeholder="Colors: Black,Navy Blue,Dark Grey" value={form.colors} onChange={(e) => setForm({ ...form, colors: e.target.value })} />
-
-                  <div className="rounded-2xl border border-slate-200 bg-white p-3 md:col-span-3">
-                    <label className="mb-2 block text-xs font-bold uppercase text-slate-500">
-                      Size dropdown list for customers
-                    </label>
-                    <input className={input} placeholder="Sizes/options: XS,S,M,L,XL,XXL,3XL,4XL,Custom" value={form.sizes} onChange={(e) => setForm({ ...form, sizes: e.target.value })} />
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {commonSizeOptions.map((size) => {
-                        const active = parseList(form.sizes).some((s) => s.toLowerCase() === size.toLowerCase());
-                        return (
-                          <button
-                            key={size}
-                            type="button"
-                            onClick={() => setForm({ ...form, sizes: toggleCsvValue(form.sizes, size) })}
-                            className={active ? "rounded-full bg-[#153f2f] px-3 py-1 text-xs font-bold text-white" : "rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-700 hover:bg-slate-100"}
-                          >
-                            {size}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <input className={input} placeholder="Price" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} />
-                  <input className={input} type="date" value={form.estimated_delivery_date} onChange={(e) => setForm({ ...form, estimated_delivery_date: e.target.value })} />
-
-                  <input className={input} placeholder="Unit type: piece, set, suit, kg" value={form.unit_type} onChange={(e) => setForm({ ...form, unit_type: e.target.value })} />
-                  <input className={input} type="number" min={1} placeholder="Minimum quantity" value={form.minimum_qty} onChange={(e) => setForm({ ...form, minimum_qty: e.target.value })} />
-                  <input className={input} placeholder="Quotation admin note e.g. Customer can request best price" value={form.quotation_note} onChange={(e) => setForm({ ...form, quotation_note: e.target.value })} />
-
-                  <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4 md:col-span-3">
-                    <h3 className="mb-3 text-sm font-extrabold text-purple-900">
-                      Tailoring Measurement Fields
-                    </h3>
-                    <p className="mb-3 text-xs text-purple-700">
-                      Customer will see these fields. Separate each field with comma.
-                    </p>
-                    <textarea
-                      className={input + " min-h-24"}
-                      placeholder="Chest (inch),Shoulder Width (inch),Sleeve Length (inch),Coat Length (inch),Neck Size (inch),Waist (inch)"
-                      value={form.measurement_fields}
-                      onChange={(e) => setForm({ ...form, measurement_fields: e.target.value })}
-                    />
-                    <div className="mt-3 flex flex-wrap gap-4 text-sm">
-                      <label className="flex items-center gap-2">
-                        <input type="checkbox" checked={form.allow_custom_measurements} onChange={(e) => setForm({ ...form, allow_custom_measurements: e.target.checked })} />
-                        Use Custom Measurements
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input type="checkbox" checked={form.allow_reference_images} onChange={(e) => setForm({ ...form, allow_reference_images: e.target.checked })} />
-                        Allow Reference Image Upload
-                      </label>
-                      <label className="flex items-center gap-2">
-                        <input type="checkbox" checked={form.allow_quotation} onChange={(e) => setForm({ ...form, allow_quotation: e.target.checked })} />
-                        Allow Quotation Request
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 md:col-span-3">
-                    <h3 className="mb-2 text-sm font-extrabold text-emerald-900">Product Photos</h3>
-                    <p className="mb-3 text-xs text-emerald-800">
-                      Upload up to 5 photos. Photo 1 is used as the main product photo.
-                    </p>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      {form.gallery_urls.map((url, index) => (
-                        <div key={index} className="rounded-2xl border bg-white p-3">
-                          <div className="mb-2 text-xs font-bold uppercase text-slate-500">Photo {index + 1}</div>
-                          <FileUpload
-                            value={url}
-                            onChange={(v) => {
-                              const next = [...form.gallery_urls];
-                              next[index] = v;
-                              setForm({ ...form, gallery_urls: next, photo_url: index === 0 ? v : form.photo_url || next[0] || "" });
-                            }}
-                            folder="preorder-products"
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <textarea className={input + " min-h-24 md:col-span-3"} placeholder="Description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-                  <textarea className={input + " min-h-24 md:col-span-3"} placeholder="Product information shown to customer" value={form.product_details} onChange={(e) => setForm({ ...form, product_details: e.target.value })} />
-                  <textarea className={input + " min-h-24 md:col-span-3"} placeholder="Specifications / material / package details" value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} />
-                  <textarea className={input + " min-h-24 md:col-span-3"} placeholder="Usage / care / important notes" value={form.usage_info} onChange={(e) => setForm({ ...form, usage_info: e.target.value })} />
-                </div>
-
-                <button className={btnPrimary + " mt-4"} onClick={submitItem}>
-                  {editingProductId ? "Update Pre-Order Item" : "Save Pre-Order Item"}
-                </button>
-              </Section>
-            )}
-
-            {activeSection === "quotations" && (
-              <Section title="Quotation Requests">
-                {orders.filter((o) => o.request_type === "quotation" || o.quotation_status).length === 0 ? (
-                  <Empty text="No quotation requests found." />
-                ) : (
-                  <div className="grid gap-4">
-                    {orders
-                      .filter((o) => o.request_type === "quotation" || o.quotation_status)
-                      .map((order) => {
-                        const product = productMap[order.preorder_product_id];
-                        return (
-                          <QuotationCard
-                            key={order.id}
-                            order={order}
-                            product={product}
-                            onSend={(price, note) => void sendQuotation(order.id, price, note)}
-                            onDelete={() => void deleteOrder(order.id)}
-                          />
-                        );
-                      })}
-                  </div>
-                )}
-              </Section>
-            )}
-
-            {activeSection === "approval" && (
-              <Section title="Order Approval">
-                <OrderFilter filter={filter} setFilter={setFilter} />
-                {filteredOrders.length === 0 ? (
-                  <Empty text="No pre-order orders found." />
-                ) : (
-                  <div className="grid gap-4">
-                    {filteredOrders.map((order) => {
-                      const product = productMap[order.preorder_product_id];
-                      return (
-                        <OrderCard key={order.id} order={order} product={product}>
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            {order.payment_slip_url && (
-                              <a href={order.payment_slip_url} target="_blank" rel="noreferrer" className={btnSecondary}>
-                                View Slip
-                              </a>
-                            )}
-                            <button className={btnPrimary} onClick={() => approvePayment(order.id)}>
-                              Approve Payment
-                            </button>
-                            <button className={btnDanger} onClick={() => rejectPayment(order.id)}>
-                              Reject
-                            </button>
-                            <button className={btnDanger} onClick={() => void deleteOrder(order.id)}>
-                              Delete Order
-                            </button>
-                          </div>
-
-                          <div className="mt-4 grid gap-3 md:grid-cols-2">
-                            <select className={input} value={order.payment_status || "pending"} onChange={(e) => updateOrder(order.id, { payment_status: e.target.value })}>
-                              <option value="pending">Payment Pending</option>
-                              <option value="approved">Payment Approved</option>
-                              <option value="rejected">Payment Rejected</option>
-                            </select>
-
-                            <select className={input} value={order.order_status || "pending"} onChange={(e) => updateOrder(order.id, { order_status: e.target.value })}>
-                              <option value="pending">Order Pending</option>
-                              <option value="accepted">Order Accepted</option>
-                              <option value="rejected">Order Rejected</option>
-                              <option value="completed">Completed</option>
-                            </select>
-                          </div>
-                        </OrderCard>
-                      );
-                    })}
-                  </div>
-                )}
-              </Section>
-            )}
-
-            {activeSection === "delivery" && (
-              <Section title="Delivery Updates">
-                <OrderFilter filter={filter} setFilter={setFilter} />
-                {filteredOrders.length === 0 ? (
-                  <Empty text="No pre-order delivery updates found." />
-                ) : (
-                  <div className="grid gap-4">
-                    {filteredOrders.map((order) => {
-                      const product = productMap[order.preorder_product_id];
-                      return (
-                        <OrderCard key={order.id} order={order} product={product}>
-                          <div className="mt-4 flex flex-wrap gap-2">
-                            <button className={btnSecondary} onClick={() => updateOrder(order.id, { tracking_status: "ready" })}>
-                              Mark Ready
-                            </button>
-                            <button className={btnSecondary} onClick={() => updateOrder(order.id, { tracking_status: "delivered", order_status: "completed" })}>
-                              Mark Delivered
-                            </button>
-                          </div>
-
-                          <div className="mt-4 grid gap-3 md:grid-cols-3">
-                            <select className={input} value={order.tracking_status || "pending"} onChange={(e) => updateOrder(order.id, { tracking_status: e.target.value })}>
-                              <option value="pending">Pending</option>
-                              <option value="processing">Processing</option>
-                              <option value="ready">Ready</option>
-                              <option value="delivering">Delivering</option>
-                              <option value="delivered">Delivered</option>
-                            </select>
-
-                            <input className={input} type="date" value={order.admin_delivery_date || ""} onChange={(e) => updateOrder(order.id, { admin_delivery_date: e.target.value })} />
-
-                            <textarea className={input + " min-h-24 md:col-span-1"} placeholder="Admin note" value={order.admin_note || ""} onChange={(e) => updateOrder(order.id, { admin_note: e.target.value })} />
-                          </div>
-                        </OrderCard>
-                      );
-                    })}
-                  </div>
-                )}
-              </Section>
-            )}
-
-            {activeSection === "settings" && (
-              <Section title="Settings">
-                <div className="grid gap-6">
-                  <div className="rounded-2xl border bg-slate-50 p-4">
-                    <h3 className="mb-4 text-lg font-extrabold text-[#153f2f]">Payment Settings</h3>
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <input className={input} placeholder="Bank Name" value={settings.bank_name} onChange={(e) => setSettings({ ...settings, bank_name: e.target.value })} />
-                      <input className={input} placeholder="Account Name" value={settings.account_name} onChange={(e) => setSettings({ ...settings, account_name: e.target.value })} />
-                      <input className={input} placeholder="Account Number" value={settings.account_number} onChange={(e) => setSettings({ ...settings, account_number: e.target.value })} />
-                      <input className={input} placeholder="BML Gateway URL" value={settings.bml_gateway_url} onChange={(e) => setSettings({ ...settings, bml_gateway_url: e.target.value })} />
-                      <textarea className={input + " min-h-24 md:col-span-2"} placeholder="Payment Instructions" value={settings.payment_note} onChange={(e) => setSettings({ ...settings, payment_note: e.target.value })} />
-                      <label className="flex items-center gap-2 text-sm">
-                        <input type="checkbox" checked={settings.bml_enabled} onChange={(e) => setSettings({ ...settings, bml_enabled: e.target.checked })} />
-                        Enable BML Gateway Button
-                      </label>
-                    </div>
-                    <button className={btnPrimary + " mt-4"} onClick={saveSettings}>
-                      Save Payment Settings
-                    </button>
-                  </div>
-
-                  <div className="rounded-2xl border bg-slate-50 p-4">
-                    <h3 className="mb-4 text-lg font-extrabold text-[#153f2f]">Pre-Order Page Banner</h3>
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                      <input className={input} placeholder="Banner Title" value={settings.banner_title} onChange={(e) => setSettings({ ...settings, banner_title: e.target.value })} />
-                      <input className={input} placeholder="Banner Subtitle" value={settings.banner_subtitle} onChange={(e) => setSettings({ ...settings, banner_subtitle: e.target.value })} />
-                      <div className="md:col-span-2">
-                        <FileUpload value={settings.banner_url} onChange={(v) => setSettings({ ...settings, banner_url: v })} folder="preorder-banners" />
-                      </div>
-                    </div>
-
-                    {settings.banner_url && (
-                      <div className="mt-4 overflow-hidden rounded-2xl border bg-slate-100">
-                        <img src={settings.banner_url} alt="Pre-order banner preview" className="h-48 w-full object-cover" />
-                      </div>
-                    )}
-
-                    <button className={btnPrimary + " mt-4"} onClick={saveSettings}>
-                      Save Banner
-                    </button>
-                  </div>
-                </div>
-              </Section>
-            )}
-          </div>
-          </main>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SummaryCard({ title, value }: { title: string; value: string | number }) {
-  return (
-    <div className="rounded-2xl border bg-white p-5 shadow-sm">
-      <p className="text-sm text-gray-500">{title}</p>
-      <p className="mt-2 text-3xl font-bold text-[#153f2f]">{value}</p>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="rounded-2xl border bg-white p-5 shadow-sm md:p-6">
-      <h2 className="mb-5 text-xl font-bold">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function OrderFilter({ filter, setFilter }: { filter: string; setFilter: (value: string) => void }) {
-  return (
-    <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <select className={input + " md:w-64"} value={filter} onChange={(e) => setFilter(e.target.value)}>
-        <option value="all">All Orders</option>
-        <option value="pending">Pending</option>
-        <option value="approved">Payment Approved</option>
-        <option value="accepted">Order Accepted</option>
-        <option value="processing">Processing</option>
-        <option value="ready">Ready</option>
-        <option value="delivering">Delivering</option>
-        <option value="delivered">Delivered</option>
-        <option value="rejected">Rejected</option>
-      </select>
-    </div>
-  );
-}
-
-function OrderCard({ order, product, children }: { order: any; product: any; children: ReactNode }) {
-  return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="flex flex-col gap-4 lg:flex-row">
-        <div className="h-28 w-28 overflow-hidden rounded-xl bg-slate-100">
-          {product?.photo_url ? (
-            <img src={product.photo_url} className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full items-center justify-center text-xs text-slate-400">No Image</div>
-          )}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-extrabold text-[#153f2f]">
-                {product?.name || "Pre-order item"}
-              </h3>
-              <p className="text-sm text-slate-500">
-                {order.customer_name} · {order.customer_phone} · {order.customer_island}
-              </p>
-              <p className="text-xs text-slate-500">
-                Delivery: {order.delivery_address || "-"}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge status={order.payment_status || "pending"} />
-              <Badge status={order.order_status || "pending"} />
-              <Badge status={order.tracking_status || "pending"} />
-            </div>
-          </div>
-
-          <div className="mt-4 grid gap-3 text-sm md:grid-cols-5">
-            <Info label="Qty" value={`${order.qty || 0} ${order.unit_type || ""}`} />
-            <Info label="Size" value={order.selected_size || "-"} />
-            <Info label="Total" value={money(Number(order.agreed_price || 0))} />
-            <Info label="Method" value={order.payment_method || "-"} />
-            <Info label="Delivery Date" value={order.admin_delivery_date || order.estimated_delivery_date || "-"} />
-          </div>
-
-          {order.customer_note && (
-            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm">
-              <b>Customer note:</b> {order.customer_note}
-            </div>
-          )}
-
-          {(order.selected_color || order.measurement_data || order.reference_image_url || order.quotation_status) && (
-            <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
-              {order.selected_color && <Info label="Color" value={order.selected_color} />}
-              {order.quotation_status && <Info label="Quotation" value={order.quotation_status} />}
-              {order.reference_image_url && (
-                <a href={order.reference_image_url} target="_blank" rel="noreferrer" className="rounded-xl bg-purple-50 p-3 font-bold text-purple-700 hover:underline">
-                  View Reference Image
-                </a>
+    <div className="mx-auto max-w-screen-2xl px-3 py-5 sm:px-6">
+      <div className="grid gap-5 lg:grid-cols-[230px_minmax(0,1fr)_250px]">
+        <aside className="space-y-4">
+          <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+            <div className="bg-[#064b2f] px-4 py-3 text-sm font-bold text-white">PRE-ORDER CATEGORIES</div>
+            <div className="space-y-1 p-3">
+              <CategoryButton active={selectedCategory === "all"} label="All Pre-Orders" onClick={() => setSelectedCategory("all")} />
+              {categories.length === 0 ? (
+                <div className="px-3 py-3 text-xs text-slate-400">No categories yet</div>
+              ) : (
+                categories.map((c) => <CategoryButton key={c} active={selectedCategory === c} label={c} onClick={() => setSelectedCategory(c)} />)
               )}
-              {order.measurement_data && (
-                <div className="rounded-xl bg-purple-50 p-3 md:col-span-2">
-                  <div className="mb-2 font-bold text-purple-900">Measurements</div>
-                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {Object.entries(order.measurement_data || {}).map(([key, value]) => (
-                      <div key={key} className="rounded-lg bg-white px-3 py-2">
-                        <span className="text-xs text-slate-500">{key}</span>
-                        <div className="font-bold">{String(value || "-")}</div>
-                      </div>
-                    ))}
-                  </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-orange-200 bg-orange-50 p-4">
+            <div className="flex items-center gap-2 font-bold text-orange-700"><HelpCircle className="h-4 w-4" />How Pre-Order Works?</div>
+            <div className="mt-3 space-y-2 text-xs text-slate-700">
+              <div>1. Choose product and quantity.</div>
+              <div>2. Add item details, size, photo or measurements if needed.</div>
+              <div>3. Pay exact total or request quotation.</div>
+              <div>4. Admin verifies and updates status.</div>
+            </div>
+          </div>
+        </aside>
+
+        <main className="min-w-0">
+          {settings?.banner_url && (
+            <div className="mb-5 overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-sm">
+              <img src={settings.banner_url} alt={settings.banner_title || "Pre-order banner"} className="h-48 w-full object-cover sm:h-64" />
+              {(settings.banner_title || settings.banner_subtitle) && (
+                <div className="p-4">
+                  {settings.banner_title && <h2 className="text-2xl font-extrabold text-[#064b2f]">{settings.banner_title}</h2>}
+                  {settings.banner_subtitle && <p className="mt-1 text-sm text-slate-600">{settings.banner_subtitle}</p>}
                 </div>
               )}
             </div>
           )}
 
-          {children}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Badge({ status }: { status: string }) {
-  return (
-    <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold capitalize ${badgeClass(status)}`}>
-      {status}
-    </span>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-slate-50 p-3">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="font-bold text-slate-800">{value}</div>
-    </div>
-  );
-}
-
-function Empty({ text }: { text: string }) {
-  return (
-    <div className="rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">
-      {text}
-    </div>
-  );
-}
-
-
-function QuotationCard({
-  order,
-  product,
-  onSend,
-  onDelete,
-}: {
-  order: any;
-  product: any;
-  onSend: (price: string, note: string) => void;
-  onDelete: () => void;
-}) {
-  const [price, setPrice] = useState(String(order.quotation_price || order.agreed_price || ""));
-  const [note, setNote] = useState(order.quotation_note || "");
-
-  return (
-    <div className="rounded-2xl border bg-white p-4 shadow-sm">
-      <div className="flex flex-col gap-4 lg:flex-row">
-        <div className="h-28 w-28 overflow-hidden rounded-xl bg-slate-100">
-          {product?.photo_url ? (
-            <img src={product.photo_url} className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full items-center justify-center text-xs text-slate-400">No Image</div>
-          )}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-extrabold text-[#153f2f]">
-                {product?.name || "Pre-order item"}
-              </h3>
-              <p className="text-sm text-slate-500">
-                {order.customer_name} · {order.customer_phone} · {order.customer_island}
-              </p>
-              <p className="text-xs text-slate-500">
-                Size: {order.selected_size || "-"} · Color: {order.selected_color || "-"} · Qty: {order.qty || 1}
-              </p>
-            </div>
-            <Badge status={order.quotation_status || "pending"} />
-          </div>
-
-          {order.customer_note && (
-            <div className="mt-3 rounded-xl bg-slate-50 p-3 text-sm">
-              <b>Customer note:</b> {order.customer_note}
-            </div>
-          )}
-
-          {order.measurement_data && (
-            <div className="mt-3 rounded-xl bg-purple-50 p-3 text-sm">
-              <div className="mb-2 font-bold text-purple-900">Customer Measurements</div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {Object.entries(order.measurement_data || {}).map(([key, value]) => (
-                  <div key={key} className="rounded-lg bg-white px-3 py-2">
-                    <span className="text-xs text-slate-500">{key}</span>
-                    <div className="font-bold">{String(value || "-")}</div>
-                  </div>
-                ))}
+          <div className="mb-5 rounded-2xl border bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-orange-50 text-orange-600"><ShoppingBag className="h-8 w-8" /></div>
+                <div>
+                  <h1 className="text-3xl font-extrabold text-[#064b2f]">Pre-Orders</h1>
+                  <p className="text-sm text-slate-500">Pre-order products, garments, food items, vehicle parts and electronics.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 py-2">
+                <img src={LOGO_URL} className="h-10 w-10 rounded-full" />
+                <div><div className="text-sm font-bold text-[#064b2f]">Ori Barakah Store</div><div className="text-xs text-slate-500">Quality Products</div></div>
               </div>
             </div>
-          )}
+            <div className="mt-5 flex flex-col gap-3 md:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search pre-order products..." className="pl-9" />
+              </div>
+              <Button className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>View Products</Button>
+            </div>
+          </div>
 
-          {order.reference_image_url && (
-            <a href={order.reference_image_url} target="_blank" rel="noreferrer" className="mt-3 inline-block rounded-xl bg-purple-100 px-4 py-2 text-sm font-bold text-purple-700 hover:underline">
-              View Customer Reference Image
-            </a>
-          )}
+          <div className="mb-5 grid gap-3 sm:grid-cols-4">
+            <StatusCard icon={Clock} title="Pending" value="Waiting Approval" />
+            <StatusCard icon={CheckCircle2} title="Approved" value="Admin Approved" />
+            <StatusCard icon={Truck} title="Ready" value="Ready to Deliver" />
+            <StatusCard icon={Package} title="Delivered" value="Completed" />
+          </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-[180px_minmax(0,1fr)_auto_auto]">
-            <input
-              className={input}
-              type="number"
-              placeholder="Quotation price"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-            />
-            <input
-              className={input}
-              placeholder="Quotation note for customer"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-            />
-            <button className={btnPrimary} onClick={() => onSend(price, note)}>
-              Send Quotation
-            </button>
-            <button className={btnDanger} onClick={onDelete}>
-              Delete
-            </button>
+          {filtered.length === 0 ? (
+            <div className="rounded-xl border border-dashed bg-white p-10 text-center text-sm text-slate-500">No pre-order products available.</div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
+              {filtered.map((p) => (
+                <div key={p.id} onClick={() => void openPreorder(p)} className="cursor-pointer overflow-hidden rounded-xl border bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                  <div className="aspect-square bg-slate-50">
+                    {parseGalleryUrls(p.gallery_urls, p.photo_url)[0] ? <img src={parseGalleryUrls(p.gallery_urls, p.photo_url)[0]} alt={p.name} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center"><img src={LOGO_URL} className="h-20 w-20 opacity-30" /></div>}
+                  </div>
+                  <div className="space-y-2 p-3">
+                    <div className="line-clamp-2 min-h-10 text-sm font-bold text-slate-800">{p.name}</div>
+                    <div className="text-xs uppercase text-slate-400">{p.category || "Pre-Order"}</div>
+                    <div className="text-lg font-extrabold text-orange-600">{MVR(Number(p.price || 0))}</div>
+                    <div className="text-xs text-slate-500">Expected: {p.estimated_delivery_date || "-"}</div>
+                    <Button className="w-full bg-orange-500 text-white hover:bg-orange-600" onClick={(e) => { e.stopPropagation(); void openPreorder(p); }}>View Details / Pre-Order</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+
+        <aside className="space-y-4">
+          <div className="rounded-xl border bg-white p-4 shadow-sm">
+            <div className="font-bold text-[#064b2f]">Need Help?</div>
+            <p className="mt-2 text-xs text-slate-600">Our team is here to assist you with pre-orders.</p>
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="flex items-center gap-2"><Phone className="h-4 w-4 text-[#064b2f]" />+960 977 8840</div>
+              <div className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-[#064b2f]" />Chat on WhatsApp</div>
+            </div>
+          </div>
+          <div className="rounded-xl border bg-white p-4 shadow-sm"><img src={LOGO_URL} className="mx-auto h-28 w-28 opacity-80" /><div className="mt-3 text-center text-sm font-bold text-[#064b2f]">Ori Barakah Store</div></div>
+        </aside>
+      </div>
+
+      {selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3">
+          <div className="relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b px-5 py-4">
+              <div>
+                <h2 className="text-2xl font-extrabold text-[#064b2f]">{selected.name}</h2>
+                <p className="text-sm text-slate-500">Complete your pre-order details.</p>
+              </div>
+              <button type="button" onClick={() => setSelected(null)} className="rounded-full bg-slate-100 p-2 hover:bg-slate-200"><X className="h-5 w-5" /></button>
+            </div>
+
+            <div className="border-b px-5 py-3">
+              <div className="grid grid-cols-4 gap-2 text-center text-xs font-bold">
+                <StepPill active={step === "details"} done={["payment", "delivery", "success"].includes(step)} label="Details" />
+                <StepPill active={step === "payment"} done={["delivery", "success"].includes(step)} label="Payment" />
+                <StepPill active={step === "delivery"} done={step === "success"} label="Delivery" />
+                <StepPill active={step === "success"} done={step === "success"} label="Submitted" />
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              {step !== "success" && (
+                <div className="mb-4 grid gap-4 rounded-2xl bg-slate-50 p-4 sm:grid-cols-[150px_minmax(0,1fr)]">
+                  <div>
+                    <div className="overflow-hidden rounded-xl bg-white">
+                      {selectedGallery[galleryIndex] ? <img src={selectedGallery[galleryIndex]} className="h-44 w-full object-cover" /> : <div className="flex h-44 items-center justify-center"><img src={LOGO_URL} className="h-20 w-20 opacity-30" /></div>}
+                    </div>
+                    {selectedGallery.length > 1 && (
+                      <div className="mt-2 grid grid-cols-5 gap-2">
+                        {selectedGallery.map((url, index) => (
+                          <button
+                            key={url + index}
+                            type="button"
+                            onClick={() => setGalleryIndex(index)}
+                            className={cn("overflow-hidden rounded-lg border bg-white", galleryIndex === index ? "border-orange-500 ring-2 ring-orange-200" : "border-slate-200")}
+                          >
+                            <img src={url} className="h-12 w-full object-cover" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-lg font-bold text-slate-900">{selected.name}</div>
+                    <div className="mt-1 text-sm text-slate-500">{selected.description || "Pre-order product"}</div>
+                    {(selected.product_details || selected.specifications || selected.usage_info) && (
+                      <div className="mt-3 space-y-2 rounded-2xl border border-emerald-100 bg-white p-3 text-sm text-slate-700">
+                        {selected.product_details && <div><b className="text-emerald-900">Product info:</b> {selected.product_details}</div>}
+                        {selected.specifications && <div><b className="text-emerald-900">Specifications:</b> {selected.specifications}</div>}
+                        {selected.usage_info && <div><b className="text-emerald-900">Notes:</b> {selected.usage_info}</div>}
+                      </div>
+                    )}
+                    <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+                      <InfoBox label="Unit Price" value={MVR(unitPrice)} />
+                      <InfoBox label="Quantity" value={`${displayQty}`} />
+                      <InfoBox label="Total Payment" value={MVR(total)} strong />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {step === "details" && (
+                <div className="grid gap-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Input value={form.customer_name} onChange={(e) => setForm({ ...form, customer_name: e.target.value })} placeholder="Customer name" />
+                    <Input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} placeholder="Phone number" />
+                    <Input className="sm:col-span-2" value={form.customer_island} onChange={(e) => setForm({ ...form, customer_island: e.target.value })} placeholder="Island / Address" />
+                    {selectedSizes.length > 0 && (
+                      <div className="sm:col-span-2">
+                        <label className="mb-2 block text-xs font-bold uppercase text-slate-500">Select Size</label>
+                        <select value={form.selected_size} onChange={(e) => setForm({ ...form, selected_size: e.target.value })} className="h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-semibold">
+                          {selectedSizes.map((s) => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  {showExtraOptions && (
+                    <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
+                      <div className="mb-3 flex items-center gap-2 text-sm font-extrabold text-purple-900"><Ruler className="h-4 w-4" />{getOptionsTitle(itemType)}</div>
+                      <div className="grid gap-3 text-sm sm:grid-cols-3">
+                        {selected.garment_type && <InfoBox label="Garment Type" value={selected.garment_type} />}
+                        {selected.sub_category && <InfoBox label="Sub Category" value={selected.sub_category} />}
+                        {selected.fabric && <InfoBox label="Fabric" value={selected.fabric} />}
+                      </div>
+
+                      {selectedColors.length > 0 && (
+                        <div className="mt-4">
+                          <label className="mb-2 block text-xs font-bold uppercase text-slate-500">Select Color / Option</label>
+                          <div className="flex flex-wrap gap-2">
+                            {selectedColors.map((color) => (
+                              <button key={color} type="button" onClick={() => setForm({ ...form, selected_color: color })} className={cn("rounded-full border px-4 py-2 text-xs font-bold", form.selected_color === color ? "border-purple-600 bg-purple-600 text-white" : "border-purple-200 bg-white text-purple-800")}>{color}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {requiredFields.length > 0 && (
+                        <div className="mt-4">
+                          <div className="mb-2 text-xs font-bold uppercase text-slate-500">{itemType === "garment" ? "Measurements / Size Details" : "Required Details"}</div>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {requiredFields.map((field) => (
+                              <Input key={field} value={form.measurement_values[field] || ""} onChange={(e) => setForm((prev) => ({ ...prev, measurement_values: { ...prev.measurement_values, [field]: e.target.value } }))} placeholder={field} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {(selected.allow_reference_images || itemType === "vehicle" || itemType === "food" || itemType === "electric" || itemType === "garment") && (
+                        <div className="mt-4">
+                          <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase text-slate-500"><Camera className="h-4 w-4" />Upload Reference Image / Product Photo (Optional)</div>
+                          <FileUpload value={form.reference_image_url} onChange={(v) => setForm({ ...form, reference_image_url: v })} folder="preorder-reference-images" />
+                        </div>
+                      )}
+
+                      {selected.allow_quotation && (
+                        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                          <div className="flex items-center gap-2 font-bold"><FileText className="h-4 w-4" />Quotation available</div>
+                          <p className="mt-1 text-xs">You can request a quotation before payment. Admin will send quotation to your profile.</p>
+                          {selected.quotation_note && <p className="mt-2 text-xs">{selected.quotation_note}</p>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                    <div className="mb-3 text-sm font-bold text-slate-700">Quantity</div>
+                    <div className="flex items-center gap-3">
+                      <button type="button" onClick={() => setForm((prev) => ({ ...prev, qty: String(Math.max(1, getQtyNumber(prev.qty) - 1)) }))} className="flex h-11 w-11 items-center justify-center rounded-xl border bg-white hover:bg-slate-50"><Minus className="h-4 w-4" /></button>
+                      <Input type="text" inputMode="numeric" value={form.qty} onChange={(e) => setForm((prev) => ({ ...prev, qty: e.target.value.replace(/[^0-9]/g, "") || "1" }))} onBlur={() => setForm((prev) => ({ ...prev, qty: normalizeQty(prev.qty) }))} className="h-11 text-center text-lg font-extrabold" />
+                      <button type="button" onClick={() => setForm((prev) => ({ ...prev, qty: String(getQtyNumber(prev.qty) + 1) }))} className="flex h-11 w-11 items-center justify-center rounded-xl border bg-white hover:bg-slate-50"><Plus className="h-4 w-4" /></button>
+                    </div>
+                    <div className="mt-4 rounded-xl bg-white p-3 text-sm">
+                      <div className="flex justify-between"><span>Unit Price</span><b>{MVR(unitPrice)}</b></div>
+                      <div className="mt-1 flex justify-between"><span>Quantity</span><b>{displayQty}</b></div>
+                      <div className="mt-2 flex justify-between border-t pt-2 text-lg font-extrabold text-orange-600"><span>Total</span><span>{MVR(total)}</span></div>
+                    </div>
+                  </div>
+
+                  <textarea value={form.customer_note} onChange={(e) => setForm({ ...form, customer_note: e.target.value })} placeholder="Customer note / special request" className="min-h-24 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#064b2f]" />
+                </div>
+              )}
+
+              {step === "payment" && (
+                <div className="grid gap-4">
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="text-sm font-bold text-emerald-900">Payment amount must be exactly {MVR(total)}</div>
+                    <div className="mt-2 text-xs text-emerald-800">This amount is calculated from unit price × selected quantity.</div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <button type="button" onClick={() => setForm({ ...form, payment_method: "bank_transfer" })} className={cn("rounded-2xl border p-4 text-left", form.payment_method === "bank_transfer" ? "border-[#064b2f] bg-emerald-50" : "bg-white hover:bg-slate-50")}>
+                      <UploadCloud className="mb-2 h-5 w-5 text-[#064b2f]" />
+                      <div className="font-bold">Bank transfer</div>
+                      <div className="text-xs text-slate-500">Upload payment slip for admin verification.</div>
+                    </button>
+                    <button type="button" disabled={!settings?.bml_enabled || !settings?.bml_gateway_url} onClick={() => setForm({ ...form, payment_method: "bml_gateway" })} className={cn("rounded-2xl border p-4 text-left disabled:cursor-not-allowed disabled:opacity-50", form.payment_method === "bml_gateway" ? "border-[#064b2f] bg-emerald-50" : "bg-white hover:bg-slate-50")}>
+                      <CreditCard className="mb-2 h-5 w-5 text-[#064b2f]" />
+                      <div className="font-bold">BML Gateway</div>
+                      <div className="text-xs text-slate-500">Gateway link opens with {MVR(total)}.</div>
+                    </button>
+                  </div>
+                  {form.payment_method === "bank_transfer" && (
+                    <div className="rounded-2xl bg-slate-50 p-4 text-sm">
+                      <div>Bank: <b>{settings?.bank_name || "-"}</b></div>
+                      <div>Account Name: <b>{settings?.account_name || "-"}</b></div>
+                      <div>Account Number: <b>{settings?.account_number || "-"}</b></div>
+                      <div className="mt-2 text-xs">{settings?.payment_note || ""}</div>
+                      <div className="mt-4"><FileUpload value={form.payment_slip_url} onChange={(v) => setForm({ ...form, payment_slip_url: v })} folder="payment-slips" /></div>
+                    </div>
+                  )}
+                  {form.payment_method === "bml_gateway" && (
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <div className="text-sm font-semibold">BML Gateway payment amount: {MVR(total)}</div>
+                      <Button type="button" className="mt-3 bg-[#064b2f] text-white hover:bg-[#073d29]" onClick={() => window.open(bmlUrl, "_blank")} disabled={!bmlUrl}>Open BML Payment Link</Button>
+                      <p className="mt-2 text-xs text-slate-500">After payment, continue to delivery information. Admin will verify payment.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {step === "delivery" && (
+                <div className="grid gap-4">
+                  <div className="rounded-2xl border bg-slate-50 p-4">
+                    <div className="mb-3 flex items-center gap-2 font-bold text-[#064b2f]"><MapPin className="h-5 w-5" />Delivery Information</div>
+                    <div className="grid gap-3">
+                      <Input value={form.delivery_address} onChange={(e) => setForm({ ...form, delivery_address: e.target.value })} placeholder="Delivery address / island / shop pickup details" />
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+                        <div className="mb-2 flex items-center gap-2 text-sm font-bold text-emerald-900"><MapPin className="h-4 w-4" />Customer Current Location</div>
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                          <Input value={form.current_location_text} onChange={(e) => setForm({ ...form, current_location_text: e.target.value })} placeholder="Use Detect Location or type location/landmark" className="bg-white" />
+                          <Button type="button" variant="outline" disabled={detectingLocation} onClick={detectCurrentLocation}>{detectingLocation ? "Detecting…" : "Detect location"}</Button>
+                        </div>
+                        {form.current_location_url && <a href={form.current_location_url} target="_blank" rel="noreferrer" className="mt-2 block text-xs font-semibold text-emerald-700 hover:underline">Open captured location in Google Maps</a>}
+                      </div>
+                      <textarea value={form.delivery_note} onChange={(e) => setForm({ ...form, delivery_note: e.target.value })} placeholder="Delivery note, preferred time, landmark, etc." className="min-h-24 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[#064b2f]" />
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                    <div className="font-bold text-orange-700">Final Summary</div>
+                    <div className="mt-3 space-y-2 text-sm">
+                      <div className="flex justify-between"><span>Item</span><b>{selected.name}</b></div>
+                      <div className="flex justify-between"><span>Qty</span><b>{displayQty}</b></div>
+                      <div className="flex justify-between"><span>Unit price</span><b>{MVR(unitPrice)}</b></div>
+                      {form.selected_size && <div className="flex justify-between"><span>Size</span><b>{form.selected_size}</b></div>}
+                      {form.selected_color && <div className="flex justify-between"><span>Color / Option</span><b>{form.selected_color}</b></div>}
+                      <div className="flex justify-between border-t pt-2 text-lg font-extrabold text-orange-600"><span>Total payment</span><span>{MVR(total)}</span></div>
+                      <div className="flex justify-between"><span>Payment method</span><b>{form.payment_method === "bml_gateway" ? "BML Gateway" : "Bank Transfer"}</b></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {step === "success" && (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center">
+                  <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-700" />
+                  <h3 className="mt-3 text-2xl font-extrabold text-emerald-900">Pre-order submitted for admin approval</h3>
+                  <p className="mt-2 text-sm text-emerald-800">You can check payment approval, quotation, order status and delivery updates from My Profile.</p>
+                </div>
+              )}
+            </div>
+
+            {step !== "success" && (
+              <div className="border-t bg-white px-5 py-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-xs text-slate-500">Total Payment</div>
+                    <div className="text-xl font-extrabold text-orange-600">{MVR(total)}</div>
+                    <div className="text-xs text-slate-500">Qty {displayQty} × {MVR(unitPrice)}</div>
+                  </div>
+                  <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                    {step !== "details" && <Button type="button" variant="outline" onClick={() => setStep(step === "delivery" ? "payment" : "details")}>Back</Button>}
+                    {step === "details" && selected.allow_quotation && <Button type="button" variant="outline" disabled={submitting} onClick={() => void requestQuotation()}>{submitting ? "Sending..." : "Request Quotation"}</Button>}
+                    {step === "details" && <Button type="button" className="bg-[#064b2f] text-white hover:bg-[#073d29]" onClick={() => { const message = validateDetails(); if (message) return alert(message); setForm((prev) => ({ ...prev, qty: normalizeQty(prev.qty) })); setStep("payment"); }}>Next: Payment {MVR(total)}</Button>}
+                    {step === "payment" && <Button type="button" className="bg-[#064b2f] text-white hover:bg-[#073d29]" onClick={() => { if (form.payment_method === "bank_transfer" && !form.payment_slip_url) { alert("Please upload payment slip."); return; } setStep("delivery"); }}>Next: Delivery Information</Button>}
+                    {step === "delivery" && <Button type="button" className="bg-[#064b2f] text-white hover:bg-[#073d29]" disabled={submitting} onClick={() => void submitOrder()}>{submitting ? "Submitting..." : "Submit for Admin Approval"}</Button>}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-function ReportTable({ orders, productMap }: { orders: any[]; productMap: Record<string, any> }) {
-  if (orders.length === 0) return <Empty text="No report data." />;
-
-  return (
-    <div className="overflow-x-auto rounded-xl border">
-      <table className="min-w-full bg-white text-sm">
-        <thead className="bg-[#153f2f] text-white">
-          <tr>
-            <Th>Customer</Th>
-            <Th>Item</Th>
-            <Th>Qty</Th>
-            <Th>Total</Th>
-            <Th>Method</Th>
-            <Th>Payment</Th>
-            <Th>Order</Th>
-            <Th>Tracking</Th>
-            <Th>Delivery</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {orders.map((o) => {
-            const p = productMap[o.preorder_product_id];
-            return (
-              <tr key={o.id} className="border-t">
-                <Td>{o.customer_name || "-"}</Td>
-                <Td>{p?.name || "Pre-order item"}</Td>
-                <Td>{o.qty || 0}</Td>
-                <Td>{money(Number(o.agreed_price || 0))}</Td>
-                <Td>{o.payment_method || "-"}</Td>
-                <Td><Badge status={o.payment_status || "pending"} /></Td>
-                <Td><Badge status={o.order_status || "pending"} /></Td>
-                <Td><Badge status={o.tracking_status || "pending"} /></Td>
-                <Td>{o.admin_delivery_date || o.estimated_delivery_date || "-"}</Td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+function CategoryButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className={cn("flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition", active ? "bg-[#064b2f] font-bold text-white" : "text-slate-700 hover:bg-slate-50")}><ShoppingBag className="h-4 w-4" />{label}</button>;
 }
 
-function Th({ children }: { children: ReactNode }) {
-  return <th className="px-4 py-3 text-left font-semibold">{children}</th>;
+function StatusCard({ icon: Icon, title, value }: { icon: any; title: string; value: string }) {
+  return <div className="rounded-xl border bg-white p-4 shadow-sm"><Icon className="h-5 w-5 text-orange-500" /><div className="mt-2 text-sm font-bold text-slate-800">{title}</div><div className="text-xs text-slate-500">{value}</div></div>;
 }
 
-function Td({ children }: { children: ReactNode }) {
-  return <td className="px-4 py-3 align-middle">{children}</td>;
+function InfoBox({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return <div className="rounded-xl bg-white p-3"><div className="text-xs text-slate-500">{label}</div><div className={cn("font-bold", strong ? "text-orange-600" : "text-slate-800")}>{value}</div></div>;
+}
+
+function StepPill({ active, done, label }: { active: boolean; done: boolean; label: string }) {
+  return <div className={cn("rounded-full border px-2 py-1", done ? "border-emerald-200 bg-emerald-100 text-emerald-800" : active ? "border-orange-200 bg-orange-100 text-orange-700" : "border-slate-200 bg-slate-50 text-slate-400")}>{label}</div>;
 }

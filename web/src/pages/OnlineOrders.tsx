@@ -80,6 +80,15 @@ export default function OnlineOrders() {
   const [selected, setSelected] = useState<OnlineOrder | null>(null);
   const [rejectFor, setRejectFor] = useState<OnlineOrder | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const openOrder = (o: OnlineOrder): void => {
+    window.dispatchEvent(
+      new CustomEvent("ori:order-opened", {
+        detail: { type: "online" },
+      })
+    );
+
+    setSelected(o);
+  };
 
   useEffect(() => {
     void load();
@@ -361,7 +370,7 @@ export default function OnlineOrders() {
         <TabsContent value="active" className="mt-4">
           <OrderList
             orders={active}
-            onSelect={setSelected}
+            onSelect={openOrder}
             onReject={setRejectFor}
             onDelete={(o) => void deleteOrderPermanently(o)}
           />
@@ -369,7 +378,7 @@ export default function OnlineOrders() {
         <TabsContent value="history" className="mt-4">
           <OrderList
             orders={history}
-            onSelect={setSelected}
+            onSelect={openOrder}
             onReject={setRejectFor}
             onDelete={(o) => void deleteOrderPermanently(o)}
           />
