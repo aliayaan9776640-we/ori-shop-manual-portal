@@ -53,6 +53,7 @@ import CustomerApprovals from "./pages/CustomerApprovals";
 import NotFound from "./pages/NotFound";
 import ResetPassword from "./pages/ResetPassword";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import DeleteAccount from "./pages/DeleteAccount";
 import { useEffect, type ReactNode } from "react";
 import Logo from "@/components/Logo";
 import { runDailyAutoBackupIfDue } from "@/lib/backup";
@@ -518,6 +519,7 @@ function AnimatedRoutes() {
         <Route path="/customer-login" element={<CustomerLogin />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/delete-account" element={<DeleteAccount />} />
         <Route path="/bill/:token" element={<PublicBill />} />
         <Route path="/store" element={<Store />} />
         <Route path="/pre-orders" element={<PreOrders />} />
