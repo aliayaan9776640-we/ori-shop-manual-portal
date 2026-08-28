@@ -197,7 +197,9 @@ const productToRow = (
   boat_fee: p.boatFee,
   other_cost: p.otherCost,
   photo_url: p.photo || null,
-  // gst_applicable column not present in DB schema yet — omitted to avoid PGRST204
+  ...(p.gstApplicable !== undefined
+    ? { gst_applicable: p.gstApplicable }
+    : {}),
   ...(p.publishStatus !== undefined ? { publish_status: p.publishStatus } : {}),
   ...(p.approvedBy !== undefined ? { approved_by: p.approvedBy } : {}),
   ...(p.approvedAt !== undefined ? { approved_at: p.approvedAt } : {}),
