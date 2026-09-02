@@ -302,7 +302,6 @@ export default function Sales() {
             pieces: safeUnitQty * mult,
           };
         })
-        .filter((c) => c.unitQty > 0)
     );
   };
 
@@ -462,6 +461,10 @@ export default function Sales() {
       }
     }
     for (const c of cart) {
+      if (c.unitQty <= 0 || c.pieces <= 0) {
+        toast.error(`Enter a quantity greater than 0 for ${c.name}`);
+        return;
+      }
       const p = products.find((x) => x.id === c.productId);
       if (!p || !hasEnoughStock(p.stockPieces, c.pieces)) {
         toast.error(`Insufficient stock for ${c.name}`);
