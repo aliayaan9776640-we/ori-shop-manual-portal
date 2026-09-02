@@ -90,6 +90,11 @@ const isWeightUnit = (unit?: string): boolean => {
   return u === "kg" || u === "g" || u === "gram" || u === "bag";
 };
 
+const isDirectWeightUnit = (unit?: string): boolean => {
+  const u = String(unit || "").toLowerCase();
+  return u === "kg" || u === "kilogram" || u === "g" || u === "gram";
+};
+
 const formatQtySmart = (n: number): string => {
   const value = Number(n || 0);
   if (Number.isInteger(value)) return formatNumber(value);
@@ -236,7 +241,7 @@ export default function Inventory() {
       sellingPrice: p.sellingPrice,
       marginPct: p.marginPct,
       unit: p.unit,
-      piecesPerCase: p.piecesPerCase,
+      piecesPerCase: isDirectWeightUnit(p.unit) ? 1 : p.piecesPerCase,
       stockPieces: p.stockPieces,
       reorderLevel: p.reorderLevel,
       expiryDate: p.expiryDate ?? "",
@@ -260,6 +265,7 @@ export default function Inventory() {
     void _ac;
     const payload = {
       ...rest,
+      piecesPerCase: isDirectWeightUnit(form.unit) ? 1 : form.piecesPerCase,
       expiryDate: form.expiryDate || undefined,
       photo: form.photo || undefined,
     };
@@ -304,7 +310,9 @@ export default function Inventory() {
   };
 
   const stockTotalPieces = stockOpen
-    ? stockBulk * Math.max(1, stockOpen.piecesPerCase) + stockLoose
+    ? isDirectWeightUnit(stockOpen.unit)
+      ? stockBulk
+      : stockBulk * Math.max(1, stockOpen.piecesPerCase) + stockLoose
     : 0;
   const submitStock = (): void => {
     if (!stockOpen) return;
@@ -351,13 +359,15 @@ export default function Inventory() {
 
   // ----- Unit helpers (UI-only; stockPieces remains the source of truth) -----
   // For piece/case items, stockPieces means pieces. For KG/bag items, it means kg/base unit.
-  const ppc = Math.max(1, form.piecesPerCase || 1);
+  const directWeight = isDirectWeightUnit(form.unit);
+  const ppc = directWeight ? 1 : Math.max(1, form.piecesPerCase || 1);
   const baseLabel = baseUnitLabel(form.unit);
   const bulkLabel = bulkUnitLabel(form.unit);
   const weighted = isWeightUnit(form.unit);
-  const addedPieces =
-    Math.max(0, Number(addBulk || 0)) * ppc +
-    Math.max(0, Number(addLoose || 0));
+  const addedPieces = directWeight
+    ? Math.max(0, Number(addBulk || 0))
+    : Math.max(0, Number(addBulk || 0)) * ppc +
+      Math.max(0, Number(addLoose || 0));
   const newBalance = existingStock + addedPieces;
   // Keep form.stockPieces in sync with existing + added
   if (form.stockPieces !== newBalance) {
@@ -827,9 +837,16 @@ export default function Inventory() {
             <Field label="Unit type">
               <select
                 value={form.unit}
-                onChange={(e) =>
-                  setForm({ ...form, unit: e.target.value as UnitType })
-                }
+                onChange={(e) => {
+                  const unit = e.target.value as UnitType;
+                  const direct = isDirectWeightUnit(unit);
+                  setForm({
+                    ...form,
+                    unit,
+                    piecesPerCase: direct ? 1 : form.piecesPerCase,
+                  });
+                  if (direct) setAddLoose(0);
+                }}
                 className={inputCls}
               >
                 {(unitOptions.length > 0
@@ -941,8 +958,8 @@ export default function Inventory() {
                   )}
                 </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label={`Add bulk quantity (${bulkLabel})`}>
+              <div className={`grid gap-3 ${directWeight ? "sm:grid-cols-1" : "sm:grid-cols-2"}`}>
+                <Field label={directWeight ? `Add quantity (${baseLabel})` : `Add bulk quantity (${bulkLabel})`}>
                   <NumInput
                     value={addBulk}
                     min={0}
@@ -958,7 +975,7 @@ export default function Inventory() {
                     className={inputCls}
                   />
                 </Field>
-                <Field label={`Units per ${bulkLabel} (${baseLabel})`}>
+                {!directWeight && <Field label={`Units per ${bulkLabel} (${baseLabel})`}>
                   <NumInput
                     value={form.piecesPerCase}
                     min={1}
@@ -974,8 +991,8 @@ export default function Inventory() {
                     }
                     className={inputCls}
                   />
-                </Field>
-                <Field label={`Add loose ${baseLabel}`}>
+                </Field>}
+                {!directWeight && <Field label={`Add loose ${baseLabel}`}>
                   <NumInput
                     value={addLoose}
                     min={0}
@@ -990,7 +1007,7 @@ export default function Inventory() {
                     }
                     className={inputCls}
                   />
-                </Field>
+                </Field>}
                 <Field label="Adding now (auto)">
                   <input
                     type="text"
@@ -999,7 +1016,7 @@ export default function Inventory() {
                     className={`${inputCls} bg-muted/40 font-semibold`}
                   />
                   <div className="mt-1 text-[10px] text-muted-foreground">
-                    = bulk × units per bulk + loose units
+                    {directWeight ? `Decimal ${baseLabel} quantity` : "= bulk × units per bulk + loose units"}
                   </div>
                 </Field>
                 <Field label={`Balance Qty (${baseLabel}) — auto`} full>
@@ -1298,9 +1315,11 @@ export default function Inventory() {
                 )}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`grid gap-3 ${stockOpen && isDirectWeightUnit(stockOpen.unit) ? "grid-cols-1" : "grid-cols-2"}`}>
               <Field
-                label={`Bulk qty (${stockOpen ? bulkUnitLabel(stockOpen.unit) : "bulk"})`}
+                label={stockOpen && isDirectWeightUnit(stockOpen.unit)
+                  ? `Quantity (${baseUnitLabel(stockOpen.unit)})`
+                  : `Bulk qty (${stockOpen ? bulkUnitLabel(stockOpen.unit) : "bulk"})`}
               >
                 <NumInput
                   value={stockBulk}
@@ -1318,7 +1337,7 @@ export default function Inventory() {
                   className={inputCls}
                 />
               </Field>
-              <Field
+              {(!stockOpen || !isDirectWeightUnit(stockOpen.unit)) && <Field
                 label={`Loose ${stockOpen ? baseUnitLabel(stockOpen.unit) : "units"}`}
               >
                 <NumInput
@@ -1336,7 +1355,7 @@ export default function Inventory() {
                   }
                   className={inputCls}
                 />
-              </Field>
+              </Field>}
             </div>
             <Field
               label={`Total ${stockOpen ? baseUnitLabel(stockOpen.unit) : "units"} (auto)`}

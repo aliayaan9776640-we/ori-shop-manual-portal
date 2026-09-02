@@ -41,6 +41,11 @@ export const landedCostPerPiece = (p: Product): number => {
 export const landedCostTotal = (p: Product): number =>
   p.purchasePrice + p.boatFee + p.otherCost;
 
+const isDirectWeightUnit = (unit?: string): boolean => {
+  const value = String(unit || "").toLowerCase();
+  return value === "kg" || value === "kilogram" || value === "g" || value === "gram";
+};
+
 export const suggestedSellingPrice = (p: Product): number => {
   const landed = landedCostTotal(p);
   return landed * (1 + p.marginPct / 100);
@@ -161,7 +166,7 @@ export const rowToProduct = (r: ProductRow): Product => ({
   sellingPrice: Number(r.selling_price),
   marginPct: Number(r.margin_pct),
   unit: r.unit_type,
-  piecesPerCase: r.pieces_per_case,
+  piecesPerCase: isDirectWeightUnit(r.unit_type) ? 1 : r.pieces_per_case,
   stockPieces: r.stock_pieces,
   reorderLevel: r.reorder_level,
   expiryDate: r.expiry_date ?? undefined,

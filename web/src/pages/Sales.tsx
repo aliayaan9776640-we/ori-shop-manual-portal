@@ -59,6 +59,18 @@ interface CartLine {
   mode: "case" | "piece";
 }
 
+const isWeightUnit = (unit?: string): boolean => {
+  const value = String(unit || "").toLowerCase();
+  return value === "kg" || value === "kilogram" || value === "g" || value === "gram";
+};
+
+const quantityLabel = (unit?: string): string => {
+  const value = String(unit || "").toLowerCase();
+  if (value === "kg" || value === "kilogram") return "kg";
+  if (value === "g" || value === "gram") return "g";
+  return "pcs";
+};
+
 export default function Sales() {
   const products = useStore((s) => s.products);
   const sales = useStore((s) => s.sales);
@@ -75,7 +87,19 @@ export default function Sales() {
   const [cart, setCart] = useState<CartLine[]>(() => {
     try {
       const saved = localStorage.getItem("pos-cart-draft");
-      return saved ? (JSON.parse(saved) as CartLine[]) : [];
+      if (!saved) return [];
+      return (JSON.parse(saved) as CartLine[]).map((line) => {
+        if (!isWeightUnit(line.unit)) return line;
+        const oldMultiplier = Math.max(1, Number(line.piecesPerCase || 1));
+        return {
+          ...line,
+          mode: "piece",
+          piecesPerCase: 1,
+          pieces: line.unitQty,
+          pricePerPiece: line.pricePerPiece * oldMultiplier,
+          costPerPiece: line.costPerPiece * oldMultiplier,
+        };
+      });
     } catch {
       return [];
     }
@@ -225,12 +249,12 @@ export default function Sales() {
       if (existing) {
         return prev.map((c) => {
           if (c.productId !== productId) return c;
-          const nextUnit = c.unitQty + 1;
+          const nextUnit = c.unitQty + (isWeightUnit(c.unit) ? 0.5 : 1);
           const mult = c.mode === "case" ? Math.max(1, c.piecesPerCase) : 1;
           return { ...c, unitQty: nextUnit, pieces: nextUnit * mult };
         });
       }
-      const ppCase = Math.max(1, p.piecesPerCase);
+      const ppCase = isWeightUnit(p.unit) ? 1 : Math.max(1, p.piecesPerCase);
       console.log("[pos] price used:", { id: p.id, name: p.name, sellingPrice: p.sellingPrice, pricePerPiece: p.sellingPrice / ppCase });
       const defaultMode: "case" | "piece" = "piece";
       const piecesAdded = 1;
@@ -258,11 +282,14 @@ export default function Sales() {
       prev
         .map((c) => {
           if (c.productId !== productId) return c;
+          const safeUnitQty = isWeightUnit(c.unit)
+            ? Math.round(Math.max(0, unitQty) * 1000) / 1000
+            : Math.floor(Math.max(0, unitQty));
           const mult = c.mode === "case" ? Math.max(1, c.piecesPerCase) : 1;
           return {
             ...c,
-            unitQty,
-            pieces: Math.max(0, unitQty) * mult,
+            unitQty: safeUnitQty,
+            pieces: safeUnitQty * mult,
           };
         })
         .filter((c) => c.unitQty > 0)
@@ -273,6 +300,7 @@ export default function Sales() {
     setCart((prev) =>
       prev.map((c) => {
         if (c.productId !== productId) return c;
+        if (isWeightUnit(c.unit)) return c;
         if (c.mode === mode) return c;
         const ppc = Math.max(1, c.piecesPerCase);
         // Preserve total pieces when switching modes; round sensibly.
@@ -290,12 +318,12 @@ export default function Sales() {
   const incQty = (productId: string): void => {
     const c = cart.find((x) => x.productId === productId);
     if (!c) return;
-    setQty(productId, c.unitQty + 1);
+    setQty(productId, c.unitQty + (isWeightUnit(c.unit) ? 0.5 : 1));
   };
   const decQty = (productId: string): void => {
     const c = cart.find((x) => x.productId === productId);
     if (!c) return;
-    setQty(productId, Math.max(0, c.unitQty - 1));
+    setQty(productId, Math.max(0, c.unitQty - (isWeightUnit(c.unit) ? 0.5 : 1)));
   };
 
   const setLinePrice = (productId: string, displayPrice: number): void => {
@@ -924,7 +952,7 @@ export default function Sales() {
                       )}
                     </div>
                     <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
-                      <span>{c.pieces} pcs</span>
+                      <span>{c.pieces} {quantityLabel(c.unit)}</span>
                       {c.piecesPerCase > 1 && (
                         <div className="inline-flex overflow-hidden rounded-md border border-slate-300">
                           <button
@@ -962,7 +990,8 @@ export default function Sales() {
                     </button>
                     <NumInput
                       min={0}
-                      step={0.5}
+                      step={isWeightUnit(c.unit) ? 0.5 : 1}
+                      allowDecimal={isWeightUnit(c.unit)}
                       value={c.unitQty}
                       onChange={(n) => setQty(c.productId, n)}
                       className="h-8 w-14 rounded-md border border-slate-300 bg-white px-1 text-center text-sm font-semibold text-slate-900 outline-none focus:border-primary"
