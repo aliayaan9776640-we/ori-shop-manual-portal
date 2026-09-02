@@ -344,7 +344,9 @@ export default function OrderAlertSystem() {
     isCustomerOrPublicPage,
   ]);
 
-  if (!isStaffAllowed || isCustomerOrPublicPage || !hasPending) {
+  const isPosPage = location.pathname === "/sales";
+
+  if (!isStaffAllowed || isCustomerOrPublicPage || isPosPage || !hasPending) {
     return null;
   }
 
@@ -353,7 +355,7 @@ export default function OrderAlertSystem() {
       <button
         type="button"
         onClick={() => setMinimized(false)}
-        className="fixed right-24 top-24 z-[9999] flex h-12 w-12 items-center justify-center rounded-full bg-[#526326] text-white shadow-2xl ring-2 ring-white hover:opacity-90"
+        className="fixed bottom-4 right-4 z-[9999] flex h-12 w-12 items-center justify-center rounded-full bg-[#526326] text-white shadow-2xl ring-2 ring-white hover:opacity-90 sm:bottom-6 sm:right-6"
         title="Open order alerts"
       >
         <Bell className="h-5 w-5 animate-pulse" />
@@ -365,7 +367,7 @@ export default function OrderAlertSystem() {
   }
 
   return (
-    <div className="fixed right-5 top-24 z-[9999] w-[340px] overflow-hidden rounded-2xl border border-orange-200 bg-white shadow-2xl">
+    <div className="fixed bottom-4 left-4 right-4 z-[9999] max-h-[calc(100dvh-2rem)] overflow-auto rounded-2xl border border-orange-200 bg-white shadow-2xl sm:left-auto sm:right-6 sm:w-[340px]">
       <div className="flex items-center justify-between bg-gradient-to-r from-emerald-700 to-orange-500 px-4 py-3 text-white">
         <div className="flex items-center gap-2 text-sm font-extrabold">
           <Bell className="h-5 w-5 animate-pulse" />
