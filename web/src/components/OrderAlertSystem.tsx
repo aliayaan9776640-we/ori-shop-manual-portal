@@ -31,7 +31,8 @@ export default function OrderAlertSystem() {
   const [minimized, setMinimized] = useState(true);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const intervalRef = useRef<number | null>(null);
+  const onlineAcknowledgedRef = useRef(false);
+  const preorderAcknowledgedRef = useRef(false);
 
   const totalPending = counts.online + counts.preorder;
   const hasPending = totalPending > 0;
@@ -52,9 +53,9 @@ export default function OrderAlertSystem() {
     location.pathname.startsWith("/bill/");
 
   const stopSoundLoop = () => {
-    if (intervalRef.current !== null) {
-      window.clearInterval(intervalRef.current);
-      intervalRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
     }
   };
   useEffect(() => {
@@ -65,10 +66,12 @@ export default function OrderAlertSystem() {
       stopSoundLoop();
 
       if (type === "online") {
+        onlineAcknowledgedRef.current = true;
         setCounts((prev) => ({ ...prev, online: 0 }));
       }
 
       if (type === "preorder") {
+        preorderAcknowledgedRef.current = true;
         setCounts((prev) => ({ ...prev, preorder: 0 }));
       }
 
@@ -123,25 +126,6 @@ export default function OrderAlertSystem() {
     }
   };
 
-  const startSoundLoop = () => {
-    if (
-      muted ||
-      intervalRef.current !== null ||
-      !isStaffAllowed ||
-      isCustomerOrPublicPage
-    ) {
-      return;
-    }
-
-    void playSound();
-
-    intervalRef.current = Number(
-      window.setInterval(() => {
-        void playSound();
-      }, 7000)
-    );
-  };
-
   const unlockAudio = async () => {
     if (!isStaffAllowed || isCustomerOrPublicPage) return;
 
@@ -167,39 +151,18 @@ export default function OrderAlertSystem() {
 
   const countOnlineOrders = async (): Promise<number> => {
     const statuses = ["pending", "new", "submitted"];
-
-    for (const status of statuses) {
-      const res = await supabase
-        .from("online_orders")
-        .select("id", { count: "exact", head: true })
-        .eq("status", status);
-
-      if (!res.error && typeof res.count === "number" && res.count > 0) {
-        return res.count;
-      }
-    }
-
-    const fallback = await supabase
+    const result = await supabase
       .from("online_orders")
       .select("id", { count: "exact", head: true })
-      .not("status", "in", "(accepted,rejected,delivered,cancelled)");
+      .in("status", statuses);
 
-    return fallback.count ?? 0;
+    return result.error ? 0 : result.count ?? 0;
   };
 
   const countPreOrders = async (): Promise<number> => {
     const tables = ["preorder_orders", "pre_orders"];
 
     for (const table of tables) {
-      const exactPending = await supabase
-        .from(table)
-        .select("id", { count: "exact", head: true })
-        .eq("payment_status", "pending");
-
-      if (!exactPending.error) {
-        return exactPending.count ?? 0;
-      }
-
       const orderPending = await supabase
         .from(table)
         .select("id", { count: "exact", head: true })
@@ -232,7 +195,10 @@ export default function OrderAlertSystem() {
       countPreOrders(),
     ]);
 
-    setCounts({ online, preorder });
+    setCounts({
+      online: onlineAcknowledgedRef.current ? 0 : online,
+      preorder: preorderAcknowledgedRef.current ? 0 : preorder,
+    });
     setLastChecked(new Date().toLocaleTimeString());
   };
 
@@ -277,7 +243,8 @@ export default function OrderAlertSystem() {
           void loadCounts();
 
           if (payload.eventType === "INSERT") {
-            setMinimized(false);
+            onlineAcknowledgedRef.current = false;
+            setMinimized(true);
             toast.success("New Online Order Received", {
               description: "Open Online Orders to attend.",
             });
@@ -292,7 +259,8 @@ export default function OrderAlertSystem() {
           void loadCounts();
 
           if (payload.eventType === "INSERT") {
-            setMinimized(false);
+            preorderAcknowledgedRef.current = false;
+            setMinimized(true);
             toast.success("New Pre-Order Received", {
               description: "Open Pre-Order Admin to attend.",
             });
@@ -324,20 +292,11 @@ export default function OrderAlertSystem() {
       location.pathname.includes("preorder-admin") ||
       location.pathname.includes("pre-order-admin");
 
-    if (onOnlineOrdersPage || onPreorderPage) {
+    if (muted || onOnlineOrdersPage || onPreorderPage) {
       stopSoundLoop();
-      void loadCounts();
-      return;
-    }
-
-    if (hasPending && !muted) {
-      startSoundLoop();
-    } else {
-      stopSoundLoop();
+      if (onOnlineOrdersPage || onPreorderPage) void loadCounts();
     }
   }, [
-    counts.online,
-    counts.preorder,
     muted,
     location.pathname,
     isStaffAllowed,
@@ -354,14 +313,27 @@ export default function OrderAlertSystem() {
     return (
       <button
         type="button"
-        onClick={() => setMinimized(false)}
-        className="fixed bottom-4 right-4 z-[9999] flex h-12 w-12 items-center justify-center rounded-full bg-[#526326] text-white shadow-2xl ring-2 ring-white hover:opacity-90 sm:bottom-6 sm:right-6"
-        title="Open order alerts"
+        onClick={() => {
+          stopSoundLoop();
+          if (counts.online > 0) {
+            onlineAcknowledgedRef.current = true;
+            setCounts((prev) => ({ ...prev, online: 0 }));
+            navigate("/online-orders");
+          } else {
+            preorderAcknowledgedRef.current = true;
+            setCounts((prev) => ({ ...prev, preorder: 0 }));
+            navigate("/preorder-admin");
+          }
+        }}
+        className="fixed left-2 right-2 top-[4.5rem] z-[9999] flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 to-orange-500 px-4 py-2 text-sm font-extrabold text-white shadow-xl ring-2 ring-white hover:opacity-95 sm:left-auto sm:right-6 sm:w-auto sm:min-w-72"
+        title="Open and attend pending orders"
       >
-        <Bell className="h-5 w-5 animate-pulse" />
-        <span className="absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-extrabold text-white">
-          {totalPending}
+        <Bell className="h-5 w-5 shrink-0" />
+        <span>{counts.online > 0 ? "Online order alert" : "Pre-order alert"}</span>
+        <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-extrabold text-white">
+          {counts.online > 0 ? counts.online : counts.preorder}
         </span>
+        <span className="text-xs font-semibold text-white/90">Open &amp; attend</span>
       </button>
     );
   }
