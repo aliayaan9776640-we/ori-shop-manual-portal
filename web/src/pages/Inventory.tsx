@@ -65,16 +65,16 @@ interface FormState {
 }
 
 const baseUnitLabel = (unit?: string): string => {
-  const u = String(unit || "piece").toLowerCase();
-  if (u === "kg" || u === "kilogram") return "kg";
+  const u = String(unit || "piece").trim().toLowerCase();
+  if (u === "kg" || u === "kilogram" || u === "gm") return "kg";
   if (u === "g" || u === "gram") return "g";
   if (u === "bag") return "kg";
   return "pc";
 };
 
 const bulkUnitLabel = (unit?: string): string => {
-  const u = String(unit || "piece").toLowerCase();
-  if (u === "kg" || u === "kilogram") return "kg";
+  const u = String(unit || "piece").trim().toLowerCase();
+  if (u === "kg" || u === "kilogram" || u === "gm") return "kg";
   if (u === "g" || u === "gram") return "g";
   if (u === "bag") return "bag";
   if (u === "box") return "box";
@@ -86,13 +86,13 @@ const bulkUnitLabel = (unit?: string): string => {
 };
 
 const isWeightUnit = (unit?: string): boolean => {
-  const u = String(unit || "").toLowerCase();
-  return u === "kg" || u === "g" || u === "gram" || u === "bag";
+  const u = String(unit || "").trim().toLowerCase();
+  return u === "kg" || u === "gm" || u === "g" || u === "gram" || u === "bag";
 };
 
 const isDirectWeightUnit = (unit?: string): boolean => {
-  const u = String(unit || "").toLowerCase();
-  return u === "kg" || u === "kilogram" || u === "g" || u === "gram";
+  const u = String(unit || "").trim().toLowerCase();
+  return u === "kg" || u === "kilogram" || u === "gm" || u === "g" || u === "gram";
 };
 
 const formatQtySmart = (n: number): string => {

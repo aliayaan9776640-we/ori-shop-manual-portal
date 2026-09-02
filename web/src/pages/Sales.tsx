@@ -60,13 +60,13 @@ interface CartLine {
 }
 
 const isWeightUnit = (unit?: string): boolean => {
-  const value = String(unit || "").toLowerCase();
-  return value === "kg" || value === "kilogram" || value === "g" || value === "gram";
+  const value = String(unit || "").trim().toLowerCase();
+  return value === "kg" || value === "kilogram" || value === "gm" || value === "g" || value === "gram";
 };
 
 const quantityLabel = (unit?: string): string => {
-  const value = String(unit || "").toLowerCase();
-  if (value === "kg" || value === "kilogram") return "kg";
+  const value = String(unit || "").trim().toLowerCase();
+  if (value === "kg" || value === "kilogram" || value === "gm") return "kg";
   if (value === "g" || value === "gram") return "g";
   return "pcs";
 };

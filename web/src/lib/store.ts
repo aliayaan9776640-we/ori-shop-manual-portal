@@ -42,8 +42,8 @@ export const landedCostTotal = (p: Product): number =>
   p.purchasePrice + p.boatFee + p.otherCost;
 
 const isDirectWeightUnit = (unit?: string): boolean => {
-  const value = String(unit || "").toLowerCase();
-  return value === "kg" || value === "kilogram" || value === "g" || value === "gram";
+  const value = String(unit || "").trim().toLowerCase();
+  return value === "kg" || value === "kilogram" || value === "gm" || value === "g" || value === "gram";
 };
 
 export const suggestedSellingPrice = (p: Product): number => {
