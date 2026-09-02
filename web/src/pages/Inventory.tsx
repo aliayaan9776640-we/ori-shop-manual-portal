@@ -392,23 +392,23 @@ export default function Inventory() {
   const suggestedPerPiece = breakdown.baseSelling / ppc;
 
   return (
-    <div className="relative left-1/2 w-[calc(100vw-300px)] max-w-none -translate-x-1/2">
+    <div className="w-full min-w-0">
       <PageHeader
         title="Inventory"
         description="Manage products, stock levels, and pricing."
         actions={
           canEdit && (
-            <div className="flex gap-2">
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
               {user?.role === "admin" && (
                 <Button
                   variant="outline"
                   onClick={() => setTaxOpen(true)}
-                  className="gap-2"
+                  className="flex-1 gap-2 whitespace-nowrap sm:flex-none"
                 >
                   Tax Settings
                 </Button>
               )}
-              <Button onClick={openNew} className="gap-2">
+              <Button onClick={openNew} className="flex-1 gap-2 whitespace-nowrap sm:flex-none">
                 <Plus className="h-4 w-4" /> Add Product
               </Button>
             </div>
@@ -426,12 +426,12 @@ export default function Inventory() {
             className="h-10 w-full rounded-lg border border-input bg-background pl-10 pr-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
           {(["all", "low", "out"] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`rounded-lg border px-3 py-2 text-xs font-medium capitalize transition ${filter === f
+              className={`flex-1 whitespace-nowrap rounded-lg border px-3 py-2 text-xs font-medium capitalize transition sm:flex-none ${filter === f
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-card hover:bg-secondary"
                 }`}
@@ -442,9 +442,9 @@ export default function Inventory() {
         </div>
       </div>
 
-      <div className="relative left-1/2 w-[calc(100vw-240px)] -translate-x-1/2 rounded-2xl border border-border bg-card shadow-sm">
+      <div className="w-full min-w-0 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="h-[calc(100vh-245px)] min-h-[420px] w-full overflow-auto">
-          <table className="w-full table-fixed text-sm">
+          <table className="w-full min-w-[1500px] table-fixed text-sm">
 
             <thead className="sticky top-0 z-20 bg-secondary text-xs uppercase tracking-wider text-muted-foreground">
               <tr>

@@ -275,8 +275,8 @@ export default function Layout() {
         />
       )}
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="relative flex h-16 items-center gap-3 border-b border-sidebar-border bg-gradient-to-r from-sidebar via-sidebar to-sidebar-accent px-4 text-white shadow-sm lg:px-8">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="relative flex h-16 min-w-0 items-center gap-2 border-b border-sidebar-border bg-gradient-to-r from-sidebar via-sidebar to-sidebar-accent px-3 text-white shadow-sm sm:gap-3 sm:px-4 lg:px-8">
           <button
             onClick={() => setOpen(true)}
             className="rounded-md p-1.5 text-white/90 hover:bg-white/10 lg:hidden"
@@ -292,7 +292,7 @@ export default function Layout() {
           >
             {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
           </button>
-          <div className="flex items-center gap-3">
+          <div className="hidden min-w-0 items-center gap-3 md:flex">
             <div>
               <div className="text-[10px] uppercase tracking-widest text-amber-300">
                 Welcome back
@@ -319,12 +319,12 @@ export default function Layout() {
               )}
             </Link>
           )}
-          <div className="ml-2 hidden rounded-full bg-amber-300/15 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-200 ring-1 ring-amber-300/30 sm:block">
+          <div className="ml-1 hidden shrink-0 rounded-full bg-amber-300/15 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-200 ring-1 ring-amber-300/30 sm:block">
             {user.role} POS
           </div>
         </header>
         <main className="flex-1 overflow-y-auto scrollbar-thin brand-watermark">
-          <div className="relative z-10 mx-auto max-w-[1400px] p-4 lg:p-8">
+          <div className="relative z-10 mx-auto w-full min-w-0 p-4 lg:p-8">
             <Outlet />
           </div>
         </main>

@@ -372,8 +372,14 @@ function consumeBatchesFifo(productId: string, qty: number): void {
   for (const b of candidates) {
     if (remaining <= 0) break;
     const take = Math.min(b.remainingPieces, remaining);
-    remaining -= take;
-    updated.push({ id: b.id, remainingPieces: b.remainingPieces - take });
+    remaining = Math.max(0, Math.round((remaining - take + Number.EPSILON) * 1000) / 1000);
+    updated.push({
+      id: b.id,
+      remainingPieces: Math.max(
+        0,
+        Math.round((b.remainingPieces - take + Number.EPSILON) * 1000) / 1000
+      ),
+    });
   }
   if (updated.length === 0) return;
   // Update local state
@@ -1728,12 +1734,18 @@ export const useStore = create<AppState>()((set, get) => ({
       if (p.stockPieces <= 0) {
         throw new Error(`${p.name} is out of stock`);
       }
-      if (p.stockPieces < soldPieces) {
+      if (p.stockPieces + 0.0005 < soldPieces) {
         throw new Error(
           `${p.name} has only ${p.stockPieces} pcs available. Requested ${soldPieces} pcs.`
         );
       }
-      stockAfterByProduct.set(productId, p.stockPieces - soldPieces);
+      stockAfterByProduct.set(
+        productId,
+        Math.max(
+          0,
+          Math.round((p.stockPieces - soldPieces + Number.EPSILON) * 1000) / 1000
+        )
+      );
     }
 
     const products = get().products.map((p) => {
