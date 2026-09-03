@@ -2684,6 +2684,20 @@ export const useStore = create<AppState>()((set, get) => ({
         user_id: get().currentUserId,
       })
       .then(({ error }) => logErr("credit_tx.insert", error));
+    if (c) {
+      const paymentMessage = `Hello ${c.name},\nWe received your credit payment of MVR ${amount.toFixed(2)}.\nRemaining credit balance: MVR ${newBalance.toFixed(2)}.\nThank you.`;
+      void import("./creditSends").then(({ useCreditSends }) =>
+        useCreditSends.getState().enqueue({
+          customerId: c.id,
+          customerName: c.name,
+          customerPhone: c.phone || null,
+          amount,
+          kind: "reminder",
+          message: paymentMessage,
+          link: null,
+        })
+      );
+    }
   },
 
   /* ------------------------ logging -------------------------------- */

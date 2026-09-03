@@ -608,6 +608,16 @@ export default function Sales() {
         footer: settings.receiptFooter,
       };
       setLastCreditBill(cb);
+      const creditMessage = `Hello ${cust.name},\nYour credit purchase of MVR ${grandTotal.toFixed(2)} has been recorded.\nNew credit balance: MVR ${newBalance.toFixed(2)}.\nThank you.`;
+      void enqueueSend({
+        customerId: cust.id,
+        customerName: cust.name,
+        customerPhone: cust.phone || null,
+        amount: grandTotal,
+        kind: "bill",
+        message: creditMessage,
+        link: null,
+      });
     } else {
       setLastCreditBill(null);
     }

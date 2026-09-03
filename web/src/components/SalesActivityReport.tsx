@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useStore } from "@/lib/store";
 import { useSettings } from "@/lib/settings";
 import { useCashDrawers } from "@/lib/cashDrawer";
@@ -130,7 +130,24 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   const cardTotal = sumBy(live, "card");
   const bankTotal = sumBy(live, "bank");
   const creditTotal = sumBy(live, "credit");
-  const cashOut = sumBy(voided, "cash");
+  const drawersInRange = drawers.filter(
+    (d) => inRange(d.openedAt) || (!!d.closedAt && inRange(d.closedAt))
+  );
+  const drawerCashOut = drawersInRange.reduce(
+    (sum, d) => sum + (d.cashUsed ?? 0),
+    0
+  );
+  const consignmentCashOut = cons.settlements
+    .filter(
+      (s) =>
+        inRange(s.paidAt) &&
+        (s.paymentMethod ?? "cash").trim().toLowerCase() === "cash"
+    )
+    .reduce((sum, s) => sum + s.amount, 0);
+  const reversedCashOut = sumBy(voided, "cash");
+  // New cash settlements are included in drawer cashUsed. Math.max also
+  // makes older settlements visible without counting newer ones twice.
+  const cashOut = reversedCashOut + Math.max(drawerCashOut, consignmentCashOut);
   const netCash = cashIn - cashOut;
 
   // Adjustments
@@ -138,8 +155,8 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   const adjustments = [
     { label: "Charged to account / Credit sales", value: creditTotal },
     { label: "Gift cards / vouchers", value: 0 },
-    { label: "Payouts", value: 0 },
-    { label: "Cash used / expenses", value: 0 },
+    { label: "Payouts", value: consignmentCashOut },
+    { label: "Cash used / expenses", value: cashOut },
     { label: "Total Available for Deposit", value: totalAvailableForDeposit },
   ];
 
@@ -154,7 +171,7 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
     { label: "Total sales receipts", value: live.length },
     { label: "Returns", value: 0 },
     { label: "Reversed / cancelled bills", value: voided.length },
-    { label: "Payouts", value: 0 },
+    { label: "Payouts", value: consignmentCashOut },
   ];
 
   const paymentBreakdown = [
@@ -422,7 +439,34 @@ const xlsDocument = (m: ReportModel): string => {
 };
 
 export default function SalesActivityReport({ period, from, to }: Props) {
-  const model = useMemo(() => buildSalesActivity(period, from, to), [period, from, to]);
+  // Keep the report live when sales, drawer payouts, or consignment
+  // settlements change while the report page is already open.
+  const sales = useStore((s) => s.sales);
+  const products = useStore((s) => s.products);
+  const customers = useStore((s) => s.customers);
+  const drawers = useCashDrawers((s) => s.drawers);
+  const consignmentSales = useConsignment((s) => s.sales);
+  const settlements = useConsignment((s) => s.settlements);
+  const loadConsignment = useConsignment((s) => s.load);
+
+  useEffect(() => {
+    void loadConsignment();
+  }, [loadConsignment]);
+
+  const model = useMemo(
+    () => buildSalesActivity(period, from, to),
+    [
+      period,
+      from,
+      to,
+      sales,
+      products,
+      customers,
+      drawers,
+      consignmentSales,
+      settlements,
+    ]
+  );
 
   const printIt = (): void => {
     const w = window.open("", "_blank", "width=900,height=700");
