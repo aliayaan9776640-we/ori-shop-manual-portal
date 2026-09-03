@@ -243,7 +243,22 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   const consInRange = cons.sales.filter((s) => inRange(s.createdAt));
   const consSettleInRange = cons.settlements.filter((s) => inRange(s.paidAt));
   const ledgerSalesTotal = consInRange.reduce((a, s) => a + s.totalAmount, 0);
-  const ledgerPayable = consInRange.reduce((a, s) => a + s.payableAmount, 0);
+  const adjustedAmounts = (sale: (typeof cons.sales)[number]) => {
+    const item = cons.items.find((candidate) => candidate.id === sale.itemId);
+    if (item && item.commissionPct > 0) {
+      const commission = sale.totalAmount * (item.commissionPct / 100);
+      return { payable: Math.max(0, sale.totalAmount - commission), commission };
+    }
+    return { payable: sale.payableAmount, commission: sale.commission };
+  };
+  const ledgerPayable = consInRange.reduce(
+    (a, sale) => a + adjustedAmounts(sale).payable,
+    0
+  );
+  const ledgerCommission = consInRange.reduce(
+    (a, sale) => a + adjustedAmounts(sale).commission,
+    0
+  );
   const linkedConsignmentItems = new Map(
     cons.items
       .filter((item) => !!item.inventoryProductId)
@@ -251,22 +266,41 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   );
   let canonicalSalesTotal = 0;
   let canonicalPayable = 0;
+  let canonicalCommission = 0;
   live.forEach((sale) => {
     sale.items.forEach((line) => {
       const consignmentItem = linkedConsignmentItems.get(line.productId);
       const product = products.find((p) => p.id === line.productId);
       if (!consignmentItem && product?.isConsignment !== true) return;
       canonicalSalesTotal += line.total;
-      canonicalPayable += line.qty * (consignmentItem?.ownerPayout ?? line.landedCost);
+      if (consignmentItem && consignmentItem.commissionPct > 0) {
+        const commission = line.total * (consignmentItem.commissionPct / 100);
+        canonicalCommission += commission;
+        canonicalPayable += Math.max(0, line.total - commission);
+      } else {
+        const payable = line.qty * (consignmentItem?.ownerPayout ?? line.landedCost);
+        canonicalPayable += payable;
+        canonicalCommission += Math.max(0, line.total - payable);
+      }
     });
   });
-  // Canonical POS sales cover older/missed mirror rows; max prevents double count.
-  const consSalesTotal = Math.max(ledgerSalesTotal, canonicalSalesTotal);
-  const consPayable = Math.max(ledgerPayable, canonicalPayable);
-  const consCommission = Math.max(0, consSalesTotal - consPayable);
+  // Canonical POS sales cover older or missed consignment mirror rows.
+  const hasCanonicalConsignmentSales = canonicalSalesTotal > 0;
+  const consSalesTotal = hasCanonicalConsignmentSales
+    ? canonicalSalesTotal
+    : ledgerSalesTotal;
+  const consPayable = hasCanonicalConsignmentSales
+    ? canonicalPayable
+    : ledgerPayable;
+  const consCommission = hasCanonicalConsignmentSales
+    ? canonicalCommission
+    : ledgerCommission;
   const consPaid = consSettleInRange.reduce((a, s) => a + s.amount, 0);
   // Unpaid balance across all owners (lifetime)
-  const lifetimePayable = cons.sales.reduce((a, s) => a + s.payableAmount, 0);
+  const lifetimePayable = cons.sales.reduce(
+    (a, sale) => a + adjustedAmounts(sale).payable,
+    0
+  );
   const lifetimePaid = cons.settlements.reduce((a, s) => a + s.amount, 0);
   const consignment = [
     { label: "Consignment sales total", value: consSalesTotal },

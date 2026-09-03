@@ -1897,11 +1897,14 @@ export const useStore = create<AppState>()((set, get) => ({
               const price = it.price;
               const ttl = take * price;
               const ownerPayout = ci.ownerPayout;
-              const payable = take * ownerPayout;
               const commission =
                 ci.commissionPct > 0
                   ? ttl * (ci.commissionPct / 100)
-                  : Math.max(0, ttl - payable);
+                  : Math.max(0, ttl - take * ownerPayout);
+              const payable =
+                ci.commissionPct > 0
+                  ? Math.max(0, ttl - commission)
+                  : take * ownerPayout;
               const { error: csErr } = await supabase
                 .from("consignment_sales")
                 .insert({

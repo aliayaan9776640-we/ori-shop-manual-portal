@@ -686,12 +686,15 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
     const price = unitPrice && unitPrice > 0 ? unitPrice : item.sellingPrice;
     const total = qty * price;
     const ownerPayout = item.ownerPayout;
-    const payable = qty * ownerPayout;
-    const landedCost = ownerPayout; // cost to shop = what we owe the consignor
     const commission =
       item.commissionPct > 0
         ? total * (item.commissionPct / 100)
-        : Math.max(0, total - payable);
+        : Math.max(0, total - qty * ownerPayout);
+    const payable =
+      item.commissionPct > 0
+        ? Math.max(0, total - commission)
+        : qty * ownerPayout;
+    const landedCost = qty > 0 ? payable / qty : 0;
     const profit = total - landedCost * qty;
     const saleItem: SaleItem = {
       productId: product.id,
@@ -844,8 +847,24 @@ export const computeOwnerBalance = (
   const ownerSales = sales.filter((s) => s.ownerId === ownerId);
   const ownerPaid = settlements.filter((s) => s.ownerId === ownerId);
   const totalSalesAmount = ownerSales.reduce((a, s) => a + s.totalAmount, 0);
-  const totalPayable = ownerSales.reduce((a, s) => a + s.payableAmount, 0);
-  const totalCommission = ownerSales.reduce((a, s) => a + s.commission, 0);
+  const totalPayable = ownerSales.reduce((a, s) => {
+    const item = ownerItems.find((i) => i.id === s.itemId);
+    return (
+      a +
+      (item && item.commissionPct > 0
+        ? s.totalAmount * (1 - item.commissionPct / 100)
+        : s.payableAmount)
+    );
+  }, 0);
+  const totalCommission = ownerSales.reduce((a, s) => {
+    const item = ownerItems.find((i) => i.id === s.itemId);
+    return (
+      a +
+      (item && item.commissionPct > 0
+        ? s.totalAmount * (item.commissionPct / 100)
+        : s.commission)
+    );
+  }, 0);
   const totalPaid = ownerPaid.reduce((a, s) => a + s.amount, 0);
   const qtyReceived = ownerItems.reduce((a, i) => a + i.qtyReceived, 0);
   const qtySold = ownerItems.reduce((a, i) => a + i.qtySold, 0);
