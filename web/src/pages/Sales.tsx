@@ -522,12 +522,14 @@ export default function Sales() {
       payment,
       payment === "credit" ? customerId : undefined,
       cashChangeForSale,
-      isBankTransferSelected
-        ? {
-            bankTransferName: bankTransferName.trim(),
-            bankTransferPhone: bankTransferPhone.trim(),
-          }
-        : undefined
+      payment === "credit"
+        ? { totalOverride: grandTotal }
+        : isBankTransferSelected
+          ? {
+              bankTransferName: bankTransferName.trim(),
+              bankTransferPhone: bankTransferPhone.trim(),
+            }
+          : undefined
     );
     const cust = customers.find((c) => c.id === customerId);
     const effectivePaid =

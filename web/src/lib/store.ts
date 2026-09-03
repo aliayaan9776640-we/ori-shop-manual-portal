@@ -309,7 +309,12 @@ interface AppState {
     paymentMethod: Sale["paymentMethod"],
     customerId?: string,
     change?: number,
-    opts?: { bankTransferName?: string; bankTransferPhone?: string }
+    opts?: {
+      bankTransferName?: string;
+      bankTransferPhone?: string;
+      /** Final POS amount due after GST, fees, and discount. */
+      totalOverride?: number;
+    }
   ) => Sale;
   /** Admin-only. Voids a sale, restores stock, reverses credit, logs the action. */
   voidSale: (id: string, reason: string) => { ok: boolean; error?: string };
@@ -1679,7 +1684,13 @@ export const useStore = create<AppState>()((set, get) => ({
 
   /* ------------------------ sales ---------------------------------- */
   addSale: (items, paymentMethod, customerId, change, opts) => {
-    const total = items.reduce((s, x) => s + x.total, 0);
+    const itemTotal = items.reduce((s, x) => s + x.total, 0);
+    const total =
+      paymentMethod === "credit" &&
+      typeof opts?.totalOverride === "number" &&
+      Number.isFinite(opts.totalOverride)
+        ? Math.max(0, +opts.totalOverride.toFixed(2))
+        : itemTotal;
     const profit = items.reduce((s, x) => s + x.profit, 0);
     const localSaleId = localId("sl");
     const cashierId = get().currentUserId ?? "";
