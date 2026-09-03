@@ -38,6 +38,7 @@ import {
 import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import type { Role } from "@/lib/types";
+import CreditMonthlyAutomation from "@/components/CreditMonthlyAutomation";
 
 interface NavItem {
   to: string;
@@ -135,6 +136,7 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen overflow-hidden pos-surface">
+      <CreditMonthlyAutomation />
       {/* Sidebar */}
       <aside
         className={cn(

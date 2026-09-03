@@ -232,9 +232,28 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   // Consignment
   const consInRange = cons.sales.filter((s) => inRange(s.createdAt));
   const consSettleInRange = cons.settlements.filter((s) => inRange(s.paidAt));
-  const consSalesTotal = consInRange.reduce((a, s) => a + s.totalAmount, 0);
-  const consPayable = consInRange.reduce((a, s) => a + s.payableAmount, 0);
-  const consCommission = consInRange.reduce((a, s) => a + s.commission, 0);
+  const ledgerSalesTotal = consInRange.reduce((a, s) => a + s.totalAmount, 0);
+  const ledgerPayable = consInRange.reduce((a, s) => a + s.payableAmount, 0);
+  const linkedConsignmentItems = new Map(
+    cons.items
+      .filter((item) => !!item.inventoryProductId)
+      .map((item) => [item.inventoryProductId!, item])
+  );
+  let canonicalSalesTotal = 0;
+  let canonicalPayable = 0;
+  live.forEach((sale) => {
+    sale.items.forEach((line) => {
+      const consignmentItem = linkedConsignmentItems.get(line.productId);
+      const product = products.find((p) => p.id === line.productId);
+      if (!consignmentItem && product?.isConsignment !== true) return;
+      canonicalSalesTotal += line.total;
+      canonicalPayable += line.qty * (consignmentItem?.ownerPayout ?? line.landedCost);
+    });
+  });
+  // Canonical POS sales cover older/missed mirror rows; max prevents double count.
+  const consSalesTotal = Math.max(ledgerSalesTotal, canonicalSalesTotal);
+  const consPayable = Math.max(ledgerPayable, canonicalPayable);
+  const consCommission = Math.max(0, consSalesTotal - consPayable);
   const consPaid = consSettleInRange.reduce((a, s) => a + s.amount, 0);
   // Unpaid balance across all owners (lifetime)
   const lifetimePayable = cons.sales.reduce((a, s) => a + s.payableAmount, 0);
@@ -446,6 +465,7 @@ export default function SalesActivityReport({ period, from, to }: Props) {
   const customers = useStore((s) => s.customers);
   const drawers = useCashDrawers((s) => s.drawers);
   const consignmentSales = useConsignment((s) => s.sales);
+  const consignmentItems = useConsignment((s) => s.items);
   const settlements = useConsignment((s) => s.settlements);
   const loadConsignment = useConsignment((s) => s.load);
 
@@ -464,6 +484,7 @@ export default function SalesActivityReport({ period, from, to }: Props) {
       customers,
       drawers,
       consignmentSales,
+      consignmentItems,
       settlements,
     ]
   );
