@@ -114,9 +114,19 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   const subReturns = gstReturns + nonGstReturns;
   const totalSales = live.reduce((a, b) => a + b.total, 0);
   const totalReturns = voided.reduce((a, b) => a + b.total, 0);
+  const gstRate = settings.gstEnabled ? Math.max(0, settings.gstPercent) : 0;
+  const gstCollected = gstSales * (gstRate / 100);
+  const gstReturned = gstReturns * (gstRate / 100);
 
   const activity: ActivityRow[] = [
     { label: "GST Sales", sales: gstSales, returns: gstReturns, net: gstSales - gstReturns },
+    {
+      label: `GST Collected (${gstRate.toFixed(2).replace(/\.00$/, "")}%)`,
+      sales: gstCollected,
+      returns: gstReturned,
+      net: gstCollected - gstReturned,
+      bold: true,
+    },
     { label: "Non-GST Sales", sales: nonGstSales, returns: nonGstReturns, net: nonGstSales - nonGstReturns },
     { label: "Subtotal", sales: subSales, returns: subReturns, net: subSales - subReturns, bold: true },
     { label: "Total Activity", sales: totalSales, returns: totalReturns, net: totalSales - totalReturns, bold: true },
