@@ -26,7 +26,14 @@ export const PRESETS: Preset[] = [
   { key: "custom", label: "Custom" },
 ];
 
-const iso = (d: Date): string => d.toISOString().slice(0, 10);
+// Format calendar dates in the shop's local timezone. toISOString() converts
+// to UTC first and can move Maldives dates back to the previous day.
+const iso = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+
+const localDate = (value: string): Date => new Date(`${value}T00:00:00`);
 
 const startOfWeek = (d: Date): Date => {
   const x = new Date(d);
@@ -82,12 +89,12 @@ export const presetRange = (key: PresetKey): { from: string; to: string } => {
 };
 
 export const formatRangeLabel = (from: string, to: string): string => {
-  const f = new Date(from).toLocaleDateString("en-GB", {
+  const f = localDate(from).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",
   });
-  const t = new Date(to).toLocaleDateString("en-GB", {
+  const t = localDate(to).toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",

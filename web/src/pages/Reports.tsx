@@ -84,8 +84,8 @@ export default function Reports() {
     setTo(r.to);
   };
 
-  const fromTs = new Date(from).getTime();
-  const toTs = new Date(to).getTime() + 24 * 60 * 60 * 1000;
+  const fromTs = new Date(`${from}T00:00:00`).getTime();
+  const toTs = new Date(`${to}T23:59:59.999`).getTime();
 
   const inRange = (iso: string): boolean => {
     const t = new Date(iso).getTime();

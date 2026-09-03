@@ -49,10 +49,10 @@ interface ReportModel {
   consignment: { label: string; value: number; bold?: boolean }[];
 }
 
-const fmtRangeUS = (from: string, to: string, period: ActivityPeriod): string => {
-  const f = new Date(from);
-  const t = new Date(to);
-  if (period === "daily") {
+const fmtRangeUS = (from: string, to: string): string => {
+  const f = new Date(`${from}T00:00:00`);
+  const t = new Date(`${to}T00:00:00`);
+  if (from === to) {
     const dStr = f.toLocaleDateString("en-US");
     return `${dStr} 12:00:00 AM to ${dStr} 11:59:59 PM`;
   }
@@ -73,8 +73,8 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   const settings = useSettings.getState();
   const shopName = settings.shopName;
 
-  const fromTs = new Date(from).getTime();
-  const toTs = new Date(to).getTime() + 24 * 60 * 60 * 1000 - 1;
+  const fromTs = new Date(`${from}T00:00:00`).getTime();
+  const toTs = new Date(`${to}T23:59:59.999`).getTime();
   const inRange = (iso: string): boolean => {
     const t = new Date(iso).getTime();
     return t >= fromTs && t <= toTs;
@@ -313,7 +313,7 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   return {
     generatedAt: new Date().toLocaleString("en-US"),
     periodLabel: periodLabel(period),
-    rangeLabel: fmtRangeUS(from, to, period),
+    rangeLabel: fmtRangeUS(from, to),
     shopName,
     activity,
     adjustments,
