@@ -733,9 +733,6 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
     };
     set({
       sales: [synthetic, ...get().sales],
-      items: get().items.map((x) =>
-        x.id === itemId ? { ...x, qtySold: x.qtySold + qty } : x,
-      ),
     });
     useStore.getState().log(
       "consignment.sale",

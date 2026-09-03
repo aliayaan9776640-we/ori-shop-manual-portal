@@ -1872,6 +1872,10 @@ export const useStore = create<AppState>()((set, get) => ({
         // page. FIFO across multiple intakes for the same product.
         try {
           const { useConsignment } = await import("./consignment");
+          // POS can be opened before the Consignment page, so its Zustand
+          // store may still be empty. Load the linked intakes before trying
+          // to mirror this sale.
+          await useConsignment.getState().load();
           const cState = useConsignment.getState();
           for (const it of items) {
             const candidates = cState.items
@@ -1933,7 +1937,7 @@ export const useStore = create<AppState>()((set, get) => ({
             }
           }
           // Refresh consignment sales list so the Consignment tab shows them.
-          void cState.load();
+          await useConsignment.getState().load();
         } catch (e) {
           // Non-fatal — the regular sale already succeeded.
           // eslint-disable-next-line no-console

@@ -10,6 +10,7 @@ import {
   type ConsignmentUnit,
 } from "@/lib/consignment";
 import { useCurrentUser } from "@/lib/store";
+import { useCashDrawers } from "@/lib/cashDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1056,6 +1057,9 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
   const sales = useConsignment((s) => s.sales);
   const settlements = useConsignment((s) => s.settlements);
   const recordSettlement = useConsignment((s) => s.recordSettlement);
+  const currentUser = useCurrentUser();
+  const drawers = useCashDrawers((s) => s.drawers);
+  const addCashUsed = useCashDrawers((s) => s.addCashUsed);
 
   const [open, setOpen] = useState(false);
   const [ownerId, setOwnerId] = useState("");
@@ -1093,6 +1097,16 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
       notes,
     });
     if (r) {
+      if (paymentMethod.trim().toLowerCase() === "cash") {
+        const openDrawer = drawers.find((d) => d.status === "open");
+        if (openDrawer) {
+          addCashUsed(currentUser?.id ?? "", amount);
+        } else {
+          toast.warning(
+            "Payment saved, but no cash drawer is open to record the cash payout."
+          );
+        }
+      }
       toast.success("Owner payment recorded and balance updated.");
       setOpen(false);
     } else {
