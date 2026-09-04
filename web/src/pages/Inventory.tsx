@@ -101,6 +101,19 @@ const formatQtySmart = (n: number): string => {
   return value.toLocaleString("en-US", { maximumFractionDigits: 3 });
 };
 
+// Per-unit values can legitimately be below one laari when a bulk contains
+// many pieces. Keep enough precision on screen so the displayed unit price
+// multiplies back to the bulk price instead of appearing inconsistent after
+// two-decimal currency rounding.
+const formatUnitCurrency = (n: number): string => {
+  const value = Number.isFinite(n) ? n : 0;
+  const formatted = new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(Math.abs(value));
+  return `${value < 0 ? "-" : ""}MVR ${formatted}`;
+};
+
 const splitBulkAndBase = (totalBase: number, perBulk: number) => {
   const safe = Math.max(1, Number(perBulk || 1));
   const bulk = Math.floor(Number(totalBase || 0) / safe);
@@ -1135,7 +1148,7 @@ export default function Inventory() {
               />
               <Stat
                 label="Landed cost / unit"
-                value={formatCurrency(landedPerPiece)}
+                value={formatUnitCurrency(landedPerPiece)}
               />
               <Stat
                 label="Suggested selling / bulk"
@@ -1144,7 +1157,7 @@ export default function Inventory() {
               />
               <Stat
                 label="Suggested selling / unit"
-                value={formatCurrency(suggestedPerPiece)}
+                value={formatUnitCurrency(suggestedPerPiece)}
                 accent
               />
               <Stat
@@ -1153,11 +1166,11 @@ export default function Inventory() {
               />
               <Stat
                 label="Selling / unit (set)"
-                value={formatCurrency(sellingPerPiece)}
+                value={formatUnitCurrency(sellingPerPiece)}
               />
               <Stat
                 label="Profit / unit"
-                value={formatCurrency(profitPerPiece)}
+                value={formatUnitCurrency(profitPerPiece)}
                 tone={profitPerPiece >= 0 ? "good" : "bad"}
               />
               <Stat
