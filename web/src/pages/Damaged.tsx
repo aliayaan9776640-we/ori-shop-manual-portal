@@ -47,6 +47,7 @@ export default function Damaged() {
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
   const [productSearch, setProductSearch] = useState("");
+  const [productPickerOpen, setProductPickerOpen] = useState(false);
 
   const product = products.find((p) => p.id === productId);
 
@@ -66,6 +67,7 @@ export default function Damaged() {
     setReason("");
     setNotes("");
     setProductSearch("");
+    setProductPickerOpen(false);
   };
 
   const selectableProducts = useMemo(() => {
@@ -359,35 +361,45 @@ export default function Damaged() {
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Product / Barcode" full>
-              <div className="relative mb-2">
+              <div className="relative">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <input
                   value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
+                  onChange={(e) => {
+                    setProductSearch(e.target.value);
+                    setProductId("");
+                    setProductPickerOpen(true);
+                  }}
+                  onFocus={() => setProductPickerOpen(true)}
                   placeholder="Search product name, ID or barcode..."
                   className={`${inputCls} pl-9`}
                   autoFocus
                 />
+                {productPickerOpen && productSearch.trim() && (
+                  <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-background shadow-xl">
+                    {selectableProducts.length > 0 ? selectableProducts.slice(0, 20).map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          setProductId(p.id);
+                          setProductSearch(`${p.name}${p.barcode ? ` · ${p.barcode}` : ""}`);
+                          setUnit(p.unit);
+                          setProductPickerOpen(false);
+                        }}
+                        className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-left text-sm last:border-b-0 hover:bg-muted"
+                      >
+                        <span className="font-medium">{p.name}</span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {p.barcode || p.id} · {p.stockPieces} in stock
+                        </span>
+                      </button>
+                    )) : (
+                      <div className="px-3 py-3 text-sm font-medium text-rose-600">No matching product found.</div>
+                    )}
+                  </div>
+                )}
               </div>
-              <select
-                value={productId}
-                onChange={(e) => {
-                  setProductId(e.target.value);
-                  const p = products.find((x) => x.id === e.target.value);
-                  if (p) setUnit(p.unit);
-                }}
-                className={inputCls}
-              >
-                <option value="">— Select product —</option>
-                {selectableProducts.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} {p.barcode ? `· ${p.barcode}` : ""} ({p.stockPieces} pcs in stock)
-                  </option>
-                ))}
-              </select>
-              {selectableProducts.length === 0 && (
-                <div className="mt-1 text-xs font-medium text-rose-600">No matching product found.</div>
-              )}
             </Field>
             <Field label="Damage quantity">
               <NumInput
