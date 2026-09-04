@@ -839,13 +839,16 @@ export default function Inventory() {
                 value={form.unit}
                 onChange={(e) => {
                   const unit = e.target.value as UnitType;
-                  const direct = isDirectWeightUnit(unit);
+                  if (unit === form.unit) return;
                   setForm({
                     ...form,
                     unit,
-                    piecesPerCase: direct ? 1 : form.piecesPerCase,
+                    // A conversion belongs to the selected unit. Never carry a
+                    // packet/box/case conversion into a different unit because
+                    // it corrupts both per-unit price and stock calculations.
+                    piecesPerCase: 1,
                   });
-                  if (direct) setAddLoose(0);
+                  setAddLoose(0);
                 }}
                 className={inputCls}
               >
