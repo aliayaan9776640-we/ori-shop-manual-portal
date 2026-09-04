@@ -1180,8 +1180,7 @@ export default function Sales() {
         </div>
 
         {/* Right summary panel — compact */}
-        <div className="flex w-full flex-col bg-slate-50 lg:w-[420px] lg:shrink-0 xl:w-[440px]">
-          <div className="flex h-full w-full flex-col lg:h-[125%] lg:w-[125%] lg:[zoom:.8]">
+        <div className="flex w-full flex-col bg-slate-50 lg:w-[min(48vw,560px)] lg:shrink-0">
           <div className="flex-1 space-y-1 overflow-auto p-1.5">
             {/* Items count strip */}
             <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm">
@@ -1191,6 +1190,7 @@ export default function Sales() {
               <span className="font-semibold text-slate-600">Qty: {totalQty}</span>
             </div>
 
+            <div className="grid grid-cols-1 gap-1 lg:grid-cols-2 lg:items-start">
             {/* Adjustments */}
             <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
               <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
@@ -1342,6 +1342,7 @@ export default function Sales() {
                   </span>
                 </div>
               </div>
+            </div>
             </div>
 
             {/* Payment method */}
@@ -1675,7 +1676,6 @@ export default function Sales() {
                 <CreditBillActions bill={lastCreditBill} customerId={lastCreditCustomerId} enqueue={enqueueSend} />
               )}
             </div>
-          </div>
           </div>
         </div>
       </div>
