@@ -1180,8 +1180,8 @@ export default function Sales() {
         </div>
 
         {/* Right summary panel — compact */}
-        <div className="flex w-full flex-col bg-slate-50 lg:w-[340px] lg:shrink-0">
-          <div className="flex-1 space-y-2 overflow-auto p-3">
+        <div className="flex w-full flex-col bg-slate-50 lg:w-[420px] lg:shrink-0 xl:w-[440px]">
+          <div className="flex-1 space-y-1.5 overflow-auto p-2">
             {/* Items count strip */}
             <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm">
               <span className="font-semibold text-slate-600">
@@ -1191,7 +1191,7 @@ export default function Sales() {
             </div>
 
             {/* Adjustments */}
-            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
               <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Tax & Charges
               </div>
@@ -1253,7 +1253,7 @@ export default function Sales() {
             </div>
 
             {/* Totals */}
-            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
               {nonGstSubtotal > 0 && (
                 <>
                   <SumRow
@@ -1344,7 +1344,7 @@ export default function Sales() {
             </div>
 
             {/* Payment method */}
-            <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
               <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Payment
               </div>
@@ -1389,7 +1389,7 @@ export default function Sales() {
                           setBankTransferPhone("");
                         }
                       }}
-                      className={`flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-xs font-semibold transition ${
+                      className={`flex items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-semibold transition ${
                         payment === m.k
                           ? "border-primary bg-primary text-primary-foreground shadow"
                           : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -1481,7 +1481,7 @@ export default function Sales() {
 
             {/* Tendered / Change */}
             {payment === "cash" && (
-              <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
                 <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   Customer paid
                 </div>
@@ -1495,9 +1495,9 @@ export default function Sales() {
                     if (v === "" || /^[0-9]*\.?[0-9]*$/.test(v)) setPaidAmount(v);
                   }}
                   placeholder={grandTotal.toFixed(2)}
-                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-2 text-right text-base font-bold text-slate-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                  className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-right text-base font-bold text-slate-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
                 />
-                <div className="mt-2 grid grid-cols-3 gap-1.5">
+                <div className="mt-1.5 grid grid-cols-3 gap-1.5 xl:grid-cols-6">
                   {[1000, 500, 100, 50, 20, 10, 5, 2, 1].map((v) => (
                     <button
                       key={v}
@@ -1509,7 +1509,7 @@ export default function Sales() {
                           ).toString()
                         )
                       }
-                      className="h-11 rounded-lg border border-slate-300 bg-white text-sm font-bold text-slate-800 shadow-sm transition active:scale-95 active:bg-slate-100 hover:bg-slate-50"
+                      className="h-8 rounded-md border border-slate-300 bg-white text-xs font-bold text-slate-800 shadow-sm transition active:scale-95 active:bg-slate-100 hover:bg-slate-50"
                     >
                       +{v}
                     </button>
@@ -1519,19 +1519,19 @@ export default function Sales() {
                   <button
                     type="button"
                     onClick={() => setPaidAmount(grandTotal.toFixed(2))}
-                    className="h-11 rounded-lg border border-emerald-400 bg-emerald-500 text-sm font-bold text-white shadow-sm transition active:scale-95 hover:bg-emerald-600"
+                    className="h-9 rounded-md border border-emerald-400 bg-emerald-500 text-xs font-bold text-white shadow-sm transition active:scale-95 hover:bg-emerald-600"
                   >
                     Exact ({formatCurrency(grandTotal)})
                   </button>
                   <button
                     type="button"
                     onClick={() => setPaidAmount("")}
-                    className="h-11 rounded-lg border border-rose-300 bg-white text-sm font-bold text-rose-700 shadow-sm transition active:scale-95 hover:bg-rose-50"
+                    className="h-9 rounded-md border border-rose-300 bg-white text-xs font-bold text-rose-700 shadow-sm transition active:scale-95 hover:bg-rose-50"
                   >
                     Clear
                   </button>
                 </div>
-                <div className="mt-3 space-y-1">
+                <div className="mt-2 space-y-0.5">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-600">Total</span>
                     <span className="font-semibold text-slate-900">
@@ -1545,7 +1545,7 @@ export default function Sales() {
                     </span>
                   </div>
                   {remainingAmt > 0 ? (
-                    <div className="flex items-center justify-between rounded-lg bg-rose-50 px-3 py-2">
+                    <div className="flex items-center justify-between rounded-md bg-rose-50 px-3 py-1.5">
                       <span className="text-xs font-bold uppercase tracking-wider text-rose-700">
                         Remaining
                       </span>
@@ -1554,7 +1554,7 @@ export default function Sales() {
                       </span>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between rounded-lg bg-emerald-50 px-3 py-2">
+                    <div className="flex items-center justify-between rounded-md bg-emerald-50 px-3 py-1.5">
                       <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
                         Change
                       </span>
@@ -1600,7 +1600,7 @@ export default function Sales() {
           )}
 
           {/* Bottom action buttons */}
-          <div className="border-t border-slate-200 bg-white p-3">
+          <div className="border-t border-slate-200 bg-white p-2">
             {showHolds && (
               <div className="mb-3 max-h-52 overflow-y-auto rounded-xl border border-amber-300 bg-amber-50 p-2">
                 <div className="mb-2 text-xs font-bold text-amber-900">Held payments — retained until processed or cancelled</div>
@@ -1617,30 +1617,30 @@ export default function Sales() {
               </div>
             )}
             <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={holdSale} disabled={cart.length === 0} className="h-11 border-amber-400 text-amber-800">
+              <Button variant="outline" onClick={holdSale} disabled={cart.length === 0} className="h-9 border-amber-400 text-amber-800">
                 <PauseCircle className="mr-1 h-4 w-4" /> Hold payment
               </Button>
-              <Button variant="outline" onClick={() => setShowHolds((v) => !v)} className="h-11 border-amber-400 text-amber-800">
+              <Button variant="outline" onClick={() => setShowHolds((v) => !v)} className="h-9 border-amber-400 text-amber-800">
                 <PlayCircle className="mr-1 h-4 w-4" /> Held list ({holds.length})
               </Button>
               <Button
                 variant="outline"
                 onClick={cancelSale}
-                className="h-12 border-slate-300 text-slate-700"
+                className="h-10 border-slate-300 text-slate-700"
               >
                 <X className="mr-1 h-4 w-4" /> Cancel
               </Button>
               <Button
                 onClick={() => checkout(false)}
                 disabled={cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
-                className="h-12"
+                className="h-10"
               >
                 <Save className="mr-1 h-4 w-4" /> Save
               </Button>
               <Button
                 onClick={() => checkout(true)}
                 disabled={cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
-                className="col-span-2 h-14 bg-emerald-600 text-base font-bold hover:bg-emerald-700"
+                className="col-span-2 h-11 bg-emerald-600 text-sm font-bold hover:bg-emerald-700"
               >
                 {openDrawer ? (
                   <>
