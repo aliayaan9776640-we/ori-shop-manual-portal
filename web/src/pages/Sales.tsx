@@ -1181,7 +1181,8 @@ export default function Sales() {
 
         {/* Right summary panel — compact */}
         <div className="flex w-full flex-col bg-slate-50 lg:w-[420px] lg:shrink-0 xl:w-[440px]">
-          <div className="flex-1 space-y-1 overflow-auto p-1.5 lg:overflow-hidden">
+          <div className="flex h-full w-full flex-col lg:h-[125%] lg:w-[125%] lg:[zoom:.8]">
+          <div className="flex-1 space-y-1 overflow-auto p-1.5">
             {/* Items count strip */}
             <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm">
               <span className="font-semibold text-slate-600">
@@ -1674,6 +1675,7 @@ export default function Sales() {
                 <CreditBillActions bill={lastCreditBill} customerId={lastCreditCustomerId} enqueue={enqueueSend} />
               )}
             </div>
+          </div>
           </div>
         </div>
       </div>
