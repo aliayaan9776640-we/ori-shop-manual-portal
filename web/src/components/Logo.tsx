@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 // wordmark on a white field, ringed with black). Used as the public-facing
 // shop avatar, watermark and login mark.
 export const LOGO_URL =
-  "https://pub-e001eb4506b145aa938b5d3badbff6a5.r2.dev/attachments/7xkvndux5zsdik70ngkk0.jpeg";
+  "/ori-logo.png";
 
 // Companion crest — Ori Brothers (black + gold lion). Used as the corporate
 // watermark in admin dashboards and on auth screens to signal ownership.

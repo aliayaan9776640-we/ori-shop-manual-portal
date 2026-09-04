@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore, landedCostPerPiece, useCurrentUser } from "@/lib/store";
 import type { PaymentMethod, SaleItem } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -47,7 +47,6 @@ import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { Lock, DoorOpen } from "lucide-react";
 import { readPosHolds, writePosHolds, type PosHold } from "@/lib/posHolds";
-import { publicCreditUrl } from "@/lib/publicUrl";
 
 interface CartLine {
   productId: string;
@@ -93,6 +92,7 @@ export default function Sales() {
   const settings = useSettings();
 
   const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [customerQuery, setCustomerQuery] = useState("");
   const [cart, setCart] = useState<CartLine[]>(() => {
     try {
@@ -293,6 +293,7 @@ export default function Sales() {
       ];
     });
     setSearch("");
+    requestAnimationFrame(() => searchInputRef.current?.focus());
   };
 
   const setQty = (productId: string, unitQty: number): void => {
@@ -677,8 +678,7 @@ export default function Sales() {
       };
       setLastCreditBill(cb);
       setLastCreditCustomerId(cust.id);
-      const accountLink = publicCreditUrl(cust.publicToken);
-      const creditMessage = `Hello ${cust.name},\nYour credit purchase of MVR ${grandTotal.toFixed(2)} has been recorded.\nNew credit balance: MVR ${newBalance.toFixed(2)}.${accountLink ? `\nView your account: ${accountLink}` : ""}\nThank you.`;
+      const creditMessage = `Hello ${cust.name},\nYour credit purchase of MVR ${grandTotal.toFixed(2)} has been recorded.\nNew credit balance: MVR ${newBalance.toFixed(2)}.\nThank you.`;
       void enqueueSend({
         customerId: cust.id,
         customerName: cust.name,
@@ -686,7 +686,7 @@ export default function Sales() {
         amount: grandTotal,
         kind: "bill",
         message: creditMessage,
-        link: accountLink || null,
+        link: null,
       });
     } else {
       setLastCreditBill(null);
@@ -796,6 +796,7 @@ export default function Sales() {
         <div className="relative flex-1">
           <ScanLine className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
           <input
+            ref={searchInputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => {

@@ -46,6 +46,7 @@ export default function Damaged() {
   const [reason, setReason] = useState("");
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
+  const [productSearch, setProductSearch] = useState("");
 
   const product = products.find((p) => p.id === productId);
 
@@ -64,7 +65,18 @@ export default function Damaged() {
     setUnitQty(1);
     setReason("");
     setNotes("");
+    setProductSearch("");
   };
+
+  const selectableProducts = useMemo(() => {
+    const q = productSearch.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.id.toLowerCase().includes(q) ||
+      (p.barcode ?? "").toLowerCase().includes(q)
+    );
+  }, [products, productSearch]);
 
   const submit = (): void => {
     if (!product) return toast.error("Select a product");
@@ -347,6 +359,16 @@ export default function Damaged() {
           </DialogHeader>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Product / Barcode" full>
+              <div className="relative mb-2">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="Search product name, ID or barcode..."
+                  className={`${inputCls} pl-9`}
+                  autoFocus
+                />
+              </div>
               <select
                 value={productId}
                 onChange={(e) => {
@@ -357,12 +379,15 @@ export default function Damaged() {
                 className={inputCls}
               >
                 <option value="">— Select product —</option>
-                {products.map((p) => (
+                {selectableProducts.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name} {p.barcode ? `· ${p.barcode}` : ""} ({p.stockPieces} pcs in stock)
                   </option>
                 ))}
               </select>
+              {selectableProducts.length === 0 && (
+                <div className="mt-1 text-xs font-medium text-rose-600">No matching product found.</div>
+              )}
             </Field>
             <Field label="Damage quantity">
               <NumInput

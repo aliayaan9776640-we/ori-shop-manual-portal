@@ -33,7 +33,6 @@ import NumInput from "@/components/NumInput";
 import { publicCreditUrl } from "@/lib/publicUrl";
 
 const buildReminder = (c: CreditCustomer): string => {
-  const url = publicCreditUrl(c.publicToken);
   return [
     `Dear ${c.name},`,
     ``,
@@ -44,7 +43,6 @@ const buildReminder = (c: CreditCustomer): string => {
       : `No payments recorded yet.`,
     ``,
     `Please settle your bill before month end.`,
-    url ? `View full bill: ${url}` : "",
   ]
     .filter(Boolean)
     .join("\n");

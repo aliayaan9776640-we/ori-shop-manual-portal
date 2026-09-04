@@ -271,13 +271,28 @@ export default function CreditSends(): JSX.Element {
         toast.error("Customer has no phone number");
         return;
       }
+      if (item.kind === "statement") {
+        const out = await generatePdfForItem(item.id);
+        if (out && canSharePdfFile(out.file)) {
+          const result = await sharePdfFile(out.file, subject, item.message);
+          if (result.ok) {
+            toast.success("Statement PDF shared — select Viber");
+            setInitiated((s) => ({ ...s, [item.id]: true }));
+            return;
+          }
+          if (result.reason === "cancelled") return;
+        }
+        if (out) downloadBlob(out.blob, out.filename);
+      }
       try {
         await navigator.clipboard.writeText(item.message);
       } catch {
         // ignore
       }
       window.location.href = `viber://chat?number=${encodeURIComponent(phone)}`;
-      toast.success("Message copied — opening Viber");
+      toast.success(item.kind === "statement"
+        ? "PDF downloaded and message copied — attach in Viber"
+        : "Message copied — opening Viber");
     } else if (channel === "email") {
       const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(item.message)}`;
       window.location.href = mailto;
