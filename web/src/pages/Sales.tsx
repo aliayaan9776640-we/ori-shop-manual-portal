@@ -785,10 +785,10 @@ export default function Sales() {
       style={{ zIndex: 2147483647 }}
     >
       {/* Top bar */}
-      <div className="flex flex-col gap-2 border-b border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center">
+      <div className="flex flex-col gap-2 border-b border-slate-200 bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center">
         <Link
           to="/"
-          className="inline-flex h-12 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-100"
+          className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-100"
           title="Back to main menu"
         >
           POS Menu
@@ -805,7 +805,7 @@ export default function Sales() {
               }
             }}
             placeholder="Scan barcode or search item..."
-            className="h-12 w-full rounded-lg border border-slate-300 bg-white pl-11 pr-3 text-base font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/30"
+            className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-11 pr-3 text-base font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/30"
             autoFocus
           />
           {search && filtered.length > 0 && (
@@ -856,7 +856,7 @@ export default function Sales() {
               setCustomerId("");
             }}
             placeholder="Search customer (name or phone)"
-            className="h-12 w-full rounded-lg border border-slate-300 bg-white pl-10 pr-9 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/30"
+            className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-10 pr-9 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-primary focus:ring-2 focus:ring-primary/30"
           />
           {selectedCustomer && (
             <button
@@ -922,7 +922,7 @@ export default function Sales() {
       )}
 
       {/* Stats strip */}
-      <div className="flex flex-wrap gap-2 border-b border-slate-200 bg-white px-4 py-2 text-xs">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 bg-white px-4 py-1.5 text-xs">
         <Stat label="Today's Sales" value={formatCurrency(todaysTotal)} />
         <Stat label="Transactions" value={String(todaysSales.length)} />
         {isAdmin && (
@@ -1181,7 +1181,7 @@ export default function Sales() {
 
         {/* Right summary panel — compact */}
         <div className="flex w-full flex-col bg-slate-50 lg:w-[420px] lg:shrink-0 xl:w-[440px]">
-          <div className="flex-1 space-y-1.5 overflow-auto p-2">
+          <div className="flex-1 space-y-1 overflow-auto p-1.5 lg:overflow-hidden">
             {/* Items count strip */}
             <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs shadow-sm">
               <span className="font-semibold text-slate-600">
@@ -1191,8 +1191,8 @@ export default function Sales() {
             </div>
 
             {/* Adjustments */}
-            <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Tax & Charges
               </div>
               <div className="grid grid-cols-2 gap-1.5">
@@ -1253,7 +1253,7 @@ export default function Sales() {
             </div>
 
             {/* Totals */}
-            <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
+            <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
               {nonGstSubtotal > 0 && (
                 <>
                   <SumRow
@@ -1322,7 +1322,7 @@ export default function Sales() {
                   </>
                 );
               })()}
-              <div className="my-1.5 border-t border-slate-200" />
+              <div className="my-1 border-t border-slate-200" />
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-700">
                   TOTAL
@@ -1331,7 +1331,7 @@ export default function Sales() {
                   {formatCurrency(grandTotal)}
                 </span>
               </div>
-              <div className="mt-1.5 rounded-md bg-amber-50 px-2.5 py-1.5">
+              <div className="mt-1 rounded-md bg-amber-50 px-2.5 py-1">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
                     Amount Due
@@ -1344,8 +1344,8 @@ export default function Sales() {
             </div>
 
             {/* Payment method */}
-            <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
-              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+              <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Payment
               </div>
               <div className="grid grid-cols-2 gap-1.5">
@@ -1481,8 +1481,8 @@ export default function Sales() {
 
             {/* Tendered / Change */}
             {payment === "cash" && (
-              <div className="rounded-lg border border-slate-200 bg-white p-2.5 shadow-sm">
-                <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+                <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   Customer paid
                 </div>
                 <input
@@ -1497,7 +1497,7 @@ export default function Sales() {
                   placeholder={grandTotal.toFixed(2)}
                   className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-right text-base font-bold text-slate-900 outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
                 />
-                <div className="mt-1.5 grid grid-cols-3 gap-1.5 xl:grid-cols-6">
+                <div className="mt-1 grid grid-cols-3 gap-1 sm:grid-cols-6">
                   {[1000, 500, 100, 50, 20, 10, 5, 2, 1].map((v) => (
                     <button
                       key={v}
@@ -1515,7 +1515,7 @@ export default function Sales() {
                     </button>
                   ))}
                 </div>
-                <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                <div className="mt-1 grid grid-cols-2 gap-1">
                   <button
                     type="button"
                     onClick={() => setPaidAmount(grandTotal.toFixed(2))}
@@ -1531,7 +1531,7 @@ export default function Sales() {
                     Clear
                   </button>
                 </div>
-                <div className="mt-2 space-y-0.5">
+                <div className="mt-1 space-y-0">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-slate-600">Total</span>
                     <span className="font-semibold text-slate-900">
@@ -1600,7 +1600,7 @@ export default function Sales() {
           )}
 
           {/* Bottom action buttons */}
-          <div className="border-t border-slate-200 bg-white p-2">
+          <div className="border-t border-slate-200 bg-white p-1.5">
             {showHolds && (
               <div className="mb-3 max-h-52 overflow-y-auto rounded-xl border border-amber-300 bg-amber-50 p-2">
                 <div className="mb-2 text-xs font-bold text-amber-900">Held payments — retained until processed or cancelled</div>
@@ -1616,31 +1616,31 @@ export default function Sales() {
                 ))}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-2">
-              <Button variant="outline" onClick={holdSale} disabled={cart.length === 0} className="h-9 border-amber-400 text-amber-800">
+            <div className="grid grid-cols-2 gap-1.5">
+              <Button variant="outline" onClick={holdSale} disabled={cart.length === 0} className="h-8 border-amber-400 text-xs text-amber-800">
                 <PauseCircle className="mr-1 h-4 w-4" /> Hold payment
               </Button>
-              <Button variant="outline" onClick={() => setShowHolds((v) => !v)} className="h-9 border-amber-400 text-amber-800">
+              <Button variant="outline" onClick={() => setShowHolds((v) => !v)} className="h-8 border-amber-400 text-xs text-amber-800">
                 <PlayCircle className="mr-1 h-4 w-4" /> Held list ({holds.length})
               </Button>
               <Button
                 variant="outline"
                 onClick={cancelSale}
-                className="h-10 border-slate-300 text-slate-700"
+                className="h-9 border-slate-300 text-xs text-slate-700"
               >
                 <X className="mr-1 h-4 w-4" /> Cancel
               </Button>
               <Button
                 onClick={() => checkout(false)}
                 disabled={cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
-                className="h-10"
+                className="h-9 text-xs"
               >
                 <Save className="mr-1 h-4 w-4" /> Save
               </Button>
               <Button
                 onClick={() => checkout(true)}
                 disabled={cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
-                className="col-span-2 h-11 bg-emerald-600 text-sm font-bold hover:bg-emerald-700"
+                className="col-span-2 h-10 bg-emerald-600 text-sm font-bold hover:bg-emerald-700"
               >
                 {openDrawer ? (
                   <>
