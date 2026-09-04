@@ -252,7 +252,9 @@ export default function CreditSends(): JSX.Element {
   };
 
   const sendViaDefault = async (item: (typeof items)[number]): Promise<void> => {
-    const channel = settings.creditDefaultSendMethod;
+    // Viber is the store's primary customer channel. Keep WhatsApp available
+    // as a secondary per-row action, but make the main action deterministic.
+    const channel = "viber";
     const phone = (item.customerPhone ?? "").replace(/[^0-9+]/g, "");
     const phoneNoPlus = phone.replace(/^\+/, "");
     const subject = item.kind === "statement" ? "Credit Statement" : "Credit Bill";
@@ -353,18 +355,7 @@ export default function CreditSends(): JSX.Element {
     if (out) emailPdf(out.blob, out.filename, undefined, subject, body);
   };
 
-  const channelLabel = (() => {
-    switch (settings.creditDefaultSendMethod) {
-      case "whatsapp":
-        return "Send via WhatsApp";
-      case "viber":
-        return "Send via Viber";
-      case "email":
-        return "Send via Email";
-      default:
-        return "Copy to Queue";
-    }
-  })();
+  const channelLabel = "Send via Viber";
 
   return (
     <>

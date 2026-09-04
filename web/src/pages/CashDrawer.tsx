@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSettings } from "@/lib/settings";
+import { readPosHolds } from "@/lib/posHolds";
 
 export default function CashDrawerPage() {
   const user = useCurrentUser();
@@ -181,6 +182,13 @@ export default function CashDrawerPage() {
 
   const handleClose = async (): Promise<void> => {
     if (!myDrawer || !user) return;
+    const heldSales = readPosHolds();
+    if (heldSales.length > 0) {
+      toast.error(
+        `${heldSales.length} held POS sale${heldSales.length === 1 ? " is" : "s are"} still pending. Process or cancel them before closing the drawer.`
+      );
+      return;
+    }
     if (counted <= 0) {
       toast.error(
         "Enter the actual counted cash (denomination count) before closing."

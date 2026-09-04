@@ -30,11 +30,10 @@ import {
 import { formatCurrency, formatDate } from "@/lib/format";
 import { toast } from "sonner";
 import NumInput from "@/components/NumInput";
+import { publicCreditUrl } from "@/lib/publicUrl";
 
 const buildReminder = (c: CreditCustomer): string => {
-  const url = c.publicToken
-    ? `${window.location.origin}/bill/${c.publicToken}`
-    : "";
+  const url = publicCreditUrl(c.publicToken);
   return [
     `Dear ${c.name},`,
     ``,
@@ -80,7 +79,7 @@ const copyPublicLink = (c: CreditCustomer): void => {
     toast.error("Public link not yet generated — refresh the page");
     return;
   }
-  const url = `${window.location.origin}/bill/${c.publicToken}`;
+  const url = publicCreditUrl(c.publicToken);
   navigator.clipboard
     .writeText(url)
     .then(() => toast.success("Public bill link copied"))

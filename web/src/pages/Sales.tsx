@@ -19,6 +19,8 @@ import {
   User as UserIcon,
   ScanLine,
   Save,
+  PauseCircle,
+  PlayCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSettings } from "@/lib/settings";
@@ -44,6 +46,8 @@ import { useDropdownGroup } from "@/lib/dropdowns";
 import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { Lock, DoorOpen } from "lucide-react";
+import { readPosHolds, writePosHolds, type PosHold } from "@/lib/posHolds";
+import { publicCreditUrl } from "@/lib/publicUrl";
 
 interface CartLine {
   productId: string;
@@ -117,6 +121,9 @@ export default function Sales() {
   const [paidAmount, setPaidAmount] = useState<string>("");
   const [bankTransferName, setBankTransferName] = useState<string>("");
   const [bankTransferPhone, setBankTransferPhone] = useState<string>("");
+  const [holds, setHolds] = useState<PosHold[]>(() => readPosHolds());
+  const [showHolds, setShowHolds] = useState(false);
+  const [activeHoldId, setActiveHoldId] = useState<string | null>(null);
 
   const drawers = useCashDrawers((s) => s.drawers);
   const addChangeGiven = useCashDrawers((s) => s.addChangeGiven);
@@ -137,6 +144,7 @@ export default function Sales() {
 
   const [lastReceipt, setLastReceipt] = useState<ReceiptData | null>(null);
   const [lastCreditBill, setLastCreditBill] = useState<CreditBillData | null>(null);
+  const [lastCreditCustomerId, setLastCreditCustomerId] = useState<string>("");
   const enqueueSend = useCreditSends((s) => s.enqueue);
 
   // Admin-managed dropdowns
@@ -422,6 +430,66 @@ export default function Sales() {
     toast("Sale cancelled");
   };
 
+  const holdSale = (): void => {
+    if (cart.length === 0) {
+      toast.error("Cart is empty");
+      return;
+    }
+    const id = activeHoldId ?? crypto.randomUUID();
+    const next: PosHold = {
+      id,
+      label: customerQuery.trim() || `Held sale ${holds.length + 1}`,
+      createdAt: new Date().toISOString(),
+      cart,
+      payment,
+      customerId,
+      customerQuery,
+      bagCount,
+      discount,
+      paidAmount,
+      bankTransferName,
+      bankTransferPhone,
+    };
+    const updated = [next, ...holds.filter((h) => h.id !== id)];
+    writePosHolds(updated);
+    setHolds(updated);
+    setActiveHoldId(null);
+    setCart([]);
+    setPayment("cash");
+    setCustomerId("");
+    setCustomerQuery("");
+    setBagCount(0);
+    setDiscount(0);
+    setPaidAmount("");
+    setBankTransferName("");
+    setBankTransferPhone("");
+    toast.success("Payment held until it is processed");
+  };
+
+  const restoreHold = (hold: PosHold): void => {
+    if (cart.length > 0 && !window.confirm("Replace the current cart with this held sale?")) return;
+    setCart(hold.cart as CartLine[]);
+    setPayment(hold.payment as PaymentMethod);
+    setCustomerId(hold.customerId);
+    setCustomerQuery(hold.customerQuery);
+    setBagCount(hold.bagCount);
+    setDiscount(hold.discount);
+    setPaidAmount(hold.paidAmount);
+    setBankTransferName(hold.bankTransferName);
+    setBankTransferPhone(hold.bankTransferPhone);
+    setActiveHoldId(hold.id);
+    setShowHolds(false);
+    toast.success("Held payment restored");
+  };
+
+  const removeHold = (id: string): void => {
+    if (!window.confirm("Cancel this held sale?")) return;
+    const updated = holds.filter((h) => h.id !== id);
+    writePosHolds(updated);
+    setHolds(updated);
+    if (activeHoldId === id) setActiveHoldId(null);
+  };
+
   const checkout = (printAfter: boolean): void => {
     if (cart.length === 0) {
       toast.error("Cart is empty");
@@ -608,7 +676,9 @@ export default function Sales() {
         footer: settings.receiptFooter,
       };
       setLastCreditBill(cb);
-      const creditMessage = `Hello ${cust.name},\nYour credit purchase of MVR ${grandTotal.toFixed(2)} has been recorded.\nNew credit balance: MVR ${newBalance.toFixed(2)}.\nThank you.`;
+      setLastCreditCustomerId(cust.id);
+      const accountLink = publicCreditUrl(cust.publicToken);
+      const creditMessage = `Hello ${cust.name},\nYour credit purchase of MVR ${grandTotal.toFixed(2)} has been recorded.\nNew credit balance: MVR ${newBalance.toFixed(2)}.${accountLink ? `\nView your account: ${accountLink}` : ""}\nThank you.`;
       void enqueueSend({
         customerId: cust.id,
         customerName: cust.name,
@@ -616,13 +686,20 @@ export default function Sales() {
         amount: grandTotal,
         kind: "bill",
         message: creditMessage,
-        link: null,
+        link: accountLink || null,
       });
     } else {
       setLastCreditBill(null);
+      setLastCreditCustomerId("");
     }
 
     toast.success(`Sale recorded · ${formatCurrency(grandTotal)}`);
+    if (activeHoldId) {
+      const updated = holds.filter((h) => h.id !== activeHoldId);
+      writePosHolds(updated);
+      setHolds(updated);
+      setActiveHoldId(null);
+    }
     if (payment === "cash") {
       toast.message("Cash drawer updated with POS sale.");
     }
@@ -1032,13 +1109,14 @@ export default function Sales() {
                     {(() => {
                       const mult = c.mode === "case" ? Math.max(1, c.piecesPerCase) : 1;
                       const display = c.pricePerPiece * mult;
-                      return isAdmin ? (
+                      return isWeightUnit(c.unit) ? (
                         <NumInput
                           min={0}
                           step={0.01}
                           value={+display.toFixed(2)}
                           onChange={(n) => setLinePrice(c.productId, n)}
-                          className="h-8 w-20 sm:w-24 rounded-md border border-slate-300 bg-white px-2 text-right text-sm text-slate-900 outline-none focus:border-primary"
+                          title="One-time price for this KG sale only"
+                          className="h-8 w-20 sm:w-24 rounded-md border border-primary/60 bg-amber-50 px-2 text-right text-sm font-semibold text-slate-900 outline-none focus:border-primary"
                         />
                       ) : (
                         <span className="text-sm text-slate-700">
@@ -1522,7 +1600,28 @@ export default function Sales() {
 
           {/* Bottom action buttons */}
           <div className="border-t border-slate-200 bg-white p-3">
+            {showHolds && (
+              <div className="mb-3 max-h-52 overflow-y-auto rounded-xl border border-amber-300 bg-amber-50 p-2">
+                <div className="mb-2 text-xs font-bold text-amber-900">Held payments — retained until processed or cancelled</div>
+                {holds.length === 0 ? <p className="text-xs text-amber-800">No held payments.</p> : holds.map((hold) => (
+                  <div key={hold.id} className="mb-1 flex items-center gap-2 rounded-lg bg-white p-2 text-xs">
+                    <button className="min-w-0 flex-1 text-left" onClick={() => restoreHold(hold)}>
+                      <span className="block truncate font-bold">{hold.label}</span>
+                      <span className="text-slate-500">{new Date(hold.createdAt).toLocaleString()} · {hold.cart.length} item(s)</span>
+                    </button>
+                    <Button size="sm" onClick={() => restoreHold(hold)}><PlayCircle className="mr-1 h-3.5 w-3.5" />Open</Button>
+                    <button className="p-2 text-rose-600" onClick={() => removeHold(hold.id)}><Trash2 className="h-4 w-4" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" onClick={holdSale} disabled={cart.length === 0} className="h-11 border-amber-400 text-amber-800">
+                <PauseCircle className="mr-1 h-4 w-4" /> Hold payment
+              </Button>
+              <Button variant="outline" onClick={() => setShowHolds((v) => !v)} className="h-11 border-amber-400 text-amber-800">
+                <PlayCircle className="mr-1 h-4 w-4" /> Held list ({holds.length})
+              </Button>
               <Button
                 variant="outline"
                 onClick={cancelSale}
@@ -1571,7 +1670,7 @@ export default function Sales() {
                 </>
               )}
               {lastCreditBill && (
-                <CreditBillActions bill={lastCreditBill} customerId={customerId} enqueue={enqueueSend} />
+                <CreditBillActions bill={lastCreditBill} customerId={lastCreditCustomerId} enqueue={enqueueSend} />
               )}
             </div>
           </div>
@@ -1748,7 +1847,7 @@ function CreditBillActions({
           onClick={() => { void onShare(); }}
           className="flex items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-2 text-xs font-medium text-emerald-900 hover:bg-emerald-100 disabled:opacity-60"
         >
-          <Share2 className="h-3.5 w-3.5" /> Share
+          <Share2 className="h-3.5 w-3.5" /> Viber / Share PDF
         </button>
         <button
           disabled={busy}

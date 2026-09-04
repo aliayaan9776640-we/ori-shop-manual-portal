@@ -105,7 +105,7 @@ export const useSettings = create<PosSettings>()(
       expiryAlertsEnabled: true,
       creditMonthlyEnabled: false,
       creditMonthlyRunDay: 1,
-      creditDefaultSendMethod: "whatsapp",
+      creditDefaultSendMethod: "viber",
       creditMessageTemplate:
         "Hello {name},\nYour credit statement for {month} is attached as a PDF.\nTotal balance: MVR {amount}\nThank you.",
       taxableActivityNo: "",

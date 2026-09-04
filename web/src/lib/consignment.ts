@@ -466,12 +466,26 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
       const nameOf = (id: string | null | undefined): string | undefined =>
         id ? users.find((u) => u.id === id)?.fullName : undefined;
 
+      const loadedSales = ((salesRes.data as SaleRow[] | null) ?? []).map((s) =>
+        rowToSale(s, nameOf(s.user_id))
+      );
+      // Sale rows are the auditable source of truth. Reconcile the displayed
+      // sold/balance figures from them so an interrupted legacy qty_sold update
+      // cannot leave Stock showing zero while Sales already contains the sale.
+      const soldByItem = new Map<string, number>();
+      for (const sale of loadedSales) {
+        soldByItem.set(sale.itemId, (soldByItem.get(sale.itemId) ?? 0) + sale.qty);
+      }
+      const loadedItems = ((itemsRes.data as ItemRow[] | null) ?? []).map(rowToItem);
+      const reconciledItems = loadedItems.map((item) => ({
+        ...item,
+        qtySold: Math.max(item.qtySold, soldByItem.get(item.id) ?? 0),
+      }));
+
       set({
         owners: ((ownersRes.data as OwnerRow[] | null) ?? []).map(rowToOwner),
-        items: ((itemsRes.data as ItemRow[] | null) ?? []).map(rowToItem),
-        sales: ((salesRes.data as SaleRow[] | null) ?? []).map((s) =>
-          rowToSale(s, nameOf(s.user_id))
-        ),
+        items: reconciledItems,
+        sales: loadedSales,
         returns: ((returnsRes.data as ReturnRow[] | null) ?? []).map(rowToReturn),
         settlements: ((settlementsRes.data as SettlementRow[] | null) ?? []).map((r) =>
           rowToSettlement(r, nameOf(r.user_id))
