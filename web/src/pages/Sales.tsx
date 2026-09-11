@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useStore, landedCostPerPiece, useCurrentUser } from "@/lib/store";
+import { useStore, landedCostPerPiece, useCurrentUser, waitForSalePersistence } from "@/lib/store";
 import type { PaymentMethod, SaleItem } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDateTime, isSameDay } from "@/lib/format";
@@ -115,6 +115,7 @@ export default function Sales() {
     }
   });
   const [payment, setPayment] = useState<PaymentMethod>("cash");
+  const [savingSale, setSavingSale] = useState(false);
   const [customerId, setCustomerId] = useState<string>("");
   const [bagCount, setBagCount] = useState<number>(0);
   const [discount, setDiscount] = useState<number>(0);
@@ -491,7 +492,8 @@ export default function Sales() {
     if (activeHoldId === id) setActiveHoldId(null);
   };
 
-  const checkout = (printAfter: boolean): void => {
+  const checkout = async (printAfter: boolean): Promise<void> => {
+    if (savingSale) return;
     if (cart.length === 0) {
       toast.error("Cart is empty");
       return;
@@ -586,7 +588,10 @@ export default function Sales() {
       }
     }
 
-    const sale = addSale(
+    setSavingSale(true);
+    let sale;
+    try {
+      sale = addSale(
       items,
       payment,
       payment === "credit" ? customerId : undefined,
@@ -599,7 +604,21 @@ export default function Sales() {
               bankTransferPhone: bankTransferPhone.trim(),
             }
           : undefined
-    );
+      );
+    } catch (error) {
+      setSavingSale(false);
+      toast.error(error instanceof Error ? error.message : "Could not save sale");
+      return;
+    }
+    const persisted = await waitForSalePersistence(sale.id);
+    if (!persisted.ok) {
+      setSavingSale(false);
+      toast.error("Sale was not saved — cart has been kept", {
+        description: persisted.error,
+      });
+      return;
+    }
+    sale = { ...sale, id: persisted.saleId };
     const cust = customers.find((c) => c.id === customerId);
     const effectivePaid =
       payment === "credit" ? 0 : paidNum > 0 ? paidNum : grandTotal;
@@ -713,6 +732,7 @@ export default function Sales() {
     setPaidAmount("");
     setBankTransferName("");
     setBankTransferPhone("");
+    setSavingSale(false);
     if (printAfter) {
       setTimeout(() => {
         if (payment === "credit" && cust) {
@@ -1632,14 +1652,14 @@ export default function Sales() {
               </Button>
               <Button
                 onClick={() => checkout(false)}
-                disabled={cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
+                disabled={savingSale || cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
                 className="h-12"
               >
-                <Save className="mr-1 h-4 w-4" /> Save
+                <Save className="mr-1 h-4 w-4" /> {savingSale ? "Saving…" : "Save"}
               </Button>
               <Button
                 onClick={() => checkout(true)}
-                disabled={cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
+                disabled={savingSale || cart.length === 0 || !openDrawer || (isBankTransferSelected && (!bankTransferName.trim() || !bankTransferPhone.trim()))}
                 className="col-span-2 h-14 bg-emerald-600 text-base font-bold hover:bg-emerald-700"
               >
                 {openDrawer ? (

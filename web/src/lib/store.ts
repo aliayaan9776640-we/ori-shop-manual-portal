@@ -54,6 +54,18 @@ export const suggestedSellingPrice = (p: Product): number => {
 const localId = (prefix: string): string =>
   `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
+export interface SalePersistenceResult {
+  ok: boolean;
+  saleId: string;
+  error?: string;
+}
+
+const salePersistence = new Map<string, Promise<SalePersistenceResult>>();
+
+/** Wait until both the sale header and every sale item are safely stored. */
+export const waitForSalePersistence = (localSaleId: string): Promise<SalePersistenceResult> =>
+  salePersistence.get(localSaleId) ?? Promise.resolve({ ok: true, saleId: localSaleId });
+
 const logErr = (where: string, err: PostgrestError | Error | null): void => {
   if (!err) return;
   // eslint-disable-next-line no-console
@@ -575,6 +587,14 @@ export const useStore = create<AppState>()((set, get) => ({
       );
       const customers: CreditCustomer[] =
         (customersRes.data as CustomerRow[] | null)?.map(rowToCustomer) ?? [];
+
+      if (salesRes.error) logErr("sales.select", salesRes.error);
+      if (saleItemsRes.error) {
+        logErr("sale_items.select", saleItemsRes.error);
+        toast.error("Bill items could not be loaded", {
+          description: saleItemsRes.error.message,
+        });
+      }
 
       // sales + sale_items
       interface SaleRow {
@@ -1684,6 +1704,7 @@ export const useStore = create<AppState>()((set, get) => ({
 
   /* ------------------------ sales ---------------------------------- */
   addSale: (items, paymentMethod, customerId, change, opts) => {
+    const stateBeforeSale = get();
     const itemTotal = items.reduce((s, x) => s + x.total, 0);
     const total =
       paymentMethod === "credit" &&
@@ -1801,7 +1822,7 @@ export const useStore = create<AppState>()((set, get) => ({
     );
 
     if (isSupabaseConfigured) {
-      void (async () => {
+      const persistence = (async (): Promise<SalePersistenceResult> => {
         const { data: saleRow, error: saleErr } = await supabase
           .from("sales")
           .insert({
@@ -1818,7 +1839,20 @@ export const useStore = create<AppState>()((set, get) => ({
           .select()
           .single();
         logErr("sales.insert", saleErr);
-        if (!saleRow) return;
+        if (saleErr || !saleRow) {
+          set({
+            sales: stateBeforeSale.sales,
+            products: stateBeforeSale.products,
+            customers: stateBeforeSale.customers,
+            creditTx: stateBeforeSale.creditTx,
+            batches: stateBeforeSale.batches,
+          });
+          return {
+            ok: false,
+            saleId: localSaleId,
+            error: saleErr?.message ?? "Sale header was not saved",
+          };
+        }
         const realId = (saleRow as { id: string }).id;
         const itemsRows = items.map((it) => ({
           sale_id: realId,
@@ -1832,6 +1866,19 @@ export const useStore = create<AppState>()((set, get) => ({
         }));
         const { error: siErr } = await supabase.from("sale_items").insert(itemsRows);
         logErr("sale_items.insert", siErr);
+        if (siErr) {
+          // Never leave an empty bill behind. Restore the local cart-related
+          // state and remove the incomplete server header.
+          await supabase.from("sales").delete().eq("id", realId);
+          set({
+            sales: stateBeforeSale.sales,
+            products: stateBeforeSale.products,
+            customers: stateBeforeSale.customers,
+            creditTx: stateBeforeSale.creditTx,
+            batches: stateBeforeSale.batches,
+          });
+          return { ok: false, saleId: localSaleId, error: siErr.message };
+        }
         // Persist exact POS stock balance to Supabase.
         // This writes the same balance already applied locally, so POS and
         // Inventory stay matched after refresh.
@@ -1952,7 +1999,27 @@ export const useStore = create<AppState>()((set, get) => ({
             s.id === localSaleId ? { ...s, id: realId } : s
           ),
         });
-      })();
+        return { ok: true, saleId: realId };
+      })().catch((error: unknown) => {
+        set({
+          sales: stateBeforeSale.sales,
+          products: stateBeforeSale.products,
+          customers: stateBeforeSale.customers,
+          creditTx: stateBeforeSale.creditTx,
+          batches: stateBeforeSale.batches,
+        });
+        return {
+          ok: false,
+          saleId: localSaleId,
+          error: error instanceof Error ? error.message : "Unexpected save failure",
+        };
+      });
+      salePersistence.set(localSaleId, persistence);
+      void persistence.finally(() => {
+        window.setTimeout(() => salePersistence.delete(localSaleId), 60_000);
+      });
+    } else {
+      salePersistence.set(localSaleId, Promise.resolve({ ok: true, saleId: localSaleId }));
     }
     return sale;
   },

@@ -94,7 +94,8 @@ export default function BillHistory() {
         return (
           inv.includes(q) ||
           (cust?.name ?? "").toLowerCase().includes(q) ||
-          (cust?.phone ?? "").toLowerCase().includes(q)
+          (cust?.phone ?? "").toLowerCase().includes(q) ||
+          s.items.some((item) => item.name.toLowerCase().includes(q))
         );
       });
     }
@@ -379,7 +380,7 @@ export default function BillHistory() {
                 {isAdmin && <th className="px-4 py-3 text-left">Cashier</th>}
                 <th className="px-4 py-3 text-left">Customer</th>
                 <th className="px-4 py-3 text-left">Payment</th>
-                <th className="px-4 py-3 text-right">Items</th>
+                <th className="px-4 py-3 text-left">Items</th>
                 <th className="px-4 py-3 text-right">Total</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -456,8 +457,11 @@ export default function BillHistory() {
                           {s.paymentMethod}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right text-muted-foreground">
-                        {itemQty}
+                      <td className="max-w-64 px-4 py-3 text-left">
+                        <div className="truncate text-sm text-foreground" title={s.items.map((item) => item.name).join(", ")}>
+                          {s.items.length > 0 ? s.items.map((item) => item.name).join(", ") : "Items unavailable"}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Qty: {itemQty}</div>
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-foreground">
                         {formatCurrency(s.total)}

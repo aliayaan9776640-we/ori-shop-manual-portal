@@ -48,6 +48,7 @@ import {
   Users as UsersIcon,
   Receipt,
   AlertTriangle,
+  Search,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
@@ -982,6 +983,20 @@ function SalesTab() {
   const owners = useConsignment((s) => s.owners);
   const user = useCurrentUser();
   const showCommission = user?.role === "admin";
+  const [query, setQuery] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const filteredSales = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const from = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : 0;
+    const to = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Infinity;
+    return sales.filter((sale) => {
+      const item = items.find((x) => x.id === sale.itemId);
+      const owner = owners.find((x) => x.id === sale.ownerId);
+      const time = new Date(sale.createdAt).getTime();
+      return time >= from && time <= to && (!q || `${item?.name ?? ""} ${owner?.name ?? ""} ${sale.notes ?? ""}`.toLowerCase().includes(q));
+    });
+  }, [sales, items, owners, query, fromDate, toDate]);
 
   if (sales.length === 0) {
     return (
@@ -994,7 +1009,16 @@ function SalesTab() {
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
+    <div className="space-y-3">
+      <div className="grid gap-2 rounded-xl border border-border bg-card p-3 md:grid-cols-[1fr_170px_170px]">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search item, owner, or note…" className="pl-9" />
+        </div>
+        <Input type="date" aria-label="Sales from date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+        <Input type="date" aria-label="Sales to date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+      </div>
+      <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
       <table className="w-full text-sm">
         <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
           <tr>
@@ -1012,7 +1036,7 @@ function SalesTab() {
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
-          {sales.map((s) => {
+          {filteredSales.map((s) => {
             const it = items.find((x) => x.id === s.itemId);
             const ow = owners.find((o) => o.id === s.ownerId);
             return (
@@ -1045,6 +1069,7 @@ function SalesTab() {
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -1319,6 +1344,28 @@ function ReturnsTab({ canManage }: { canManage: boolean }) {
   const [itemId, setItemId] = useState("");
   const [qty, setQty] = useState(1);
   const [notes, setNotes] = useState("");
+  const [itemSearch, setItemSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const returnableItems = useMemo(() => {
+    const q = itemSearch.trim().toLowerCase();
+    return items.filter((item) => {
+      const owner = owners.find((x) => x.id === item.ownerId);
+      return itemBalance(item) > 0 && (!q || `${item.name} ${owner?.name ?? ""}`.toLowerCase().includes(q));
+    });
+  }, [items, owners, itemSearch]);
+  const filteredReturns = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const from = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : 0;
+    const to = toDate ? new Date(`${toDate}T23:59:59.999`).getTime() : Infinity;
+    return returns.filter((entry) => {
+      const item = items.find((x) => x.id === entry.itemId);
+      const owner = owners.find((x) => x.id === entry.ownerId);
+      const time = new Date(entry.createdAt).getTime();
+      return time >= from && time <= to && (!q || `${item?.name ?? ""} ${owner?.name ?? ""} ${entry.notes ?? ""}`.toLowerCase().includes(q));
+    });
+  }, [returns, items, owners, query, fromDate, toDate]);
 
   const submit = async (): Promise<void> => {
     if (!itemId) {
@@ -1352,6 +1399,7 @@ function ReturnsTab({ canManage }: { canManage: boolean }) {
               setItemId("");
               setQty(1);
               setNotes("");
+              setItemSearch("");
               setOpen(true);
             }}
             className="gap-2"
@@ -1362,6 +1410,14 @@ function ReturnsTab({ canManage }: { canManage: boolean }) {
         )}
       </div>
 
+      <div className="mb-3 grid gap-2 rounded-xl border border-border bg-card p-3 md:grid-cols-[1fr_170px_170px]">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search returned item, owner, or note…" className="pl-9" />
+        </div>
+        <Input type="date" aria-label="Returns from date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+        <Input type="date" aria-label="Returns to date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+      </div>
       <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
@@ -1381,7 +1437,7 @@ function ReturnsTab({ canManage }: { canManage: boolean }) {
                 </td>
               </tr>
             )}
-            {returns.map((r) => {
+            {filteredReturns.map((r) => {
               const it = items.find((x) => x.id === r.itemId);
               const ow = owners.find((o) => o.id === r.ownerId);
               return (
@@ -1410,14 +1466,16 @@ function ReturnsTab({ canManage }: { canManage: boolean }) {
           <div className="space-y-3">
             <div>
               <Label>Item *</Label>
+              <div className="relative mb-2">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Search item or owner…" className="pl-9" autoFocus />
+              </div>
               <Select value={itemId} onValueChange={setItemId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select item" />
                 </SelectTrigger>
                 <SelectContent>
-                  {items
-                    .filter((i) => itemBalance(i) > 0)
-                    .map((i) => {
+                  {returnableItems.map((i) => {
                       const ow = owners.find((o) => o.id === i.ownerId);
                       return (
                         <SelectItem key={i.id} value={i.id}>
