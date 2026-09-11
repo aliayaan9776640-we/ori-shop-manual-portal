@@ -3,10 +3,12 @@ import { useStore } from "@/lib/store";
 import { useCashDrawers } from "@/lib/cashDrawer";
 import { useQuotations } from "@/lib/quotations";
 import { useSettings } from "@/lib/settings";
+import { useConsignment } from "@/lib/consignment";
+import { usePurchaseOrders } from "@/lib/purchaseOrders";
 
 export interface BackupSnapshot {
   generatedAt: string; // ISO
-  version: 1;
+  version: 2;
   users: unknown[];
   products: unknown[];
   suppliers: unknown[];
@@ -19,6 +21,16 @@ export interface BackupSnapshot {
   quotations: unknown[];
   cashDrawers: unknown[];
   settings: unknown;
+  inventoryTransactions: unknown[];
+  stockBatches: unknown[];
+  purchaseOrders: unknown[];
+  consignment: {
+    owners: unknown[];
+    items: unknown[];
+    sales: unknown[];
+    returns: unknown[];
+    settlements: unknown[];
+  };
 }
 
 const LAST_AUTO_KEY = "ori_backup_last_auto";
@@ -36,10 +48,12 @@ export function buildSnapshot(): BackupSnapshot {
   const cd = useCashDrawers.getState();
   const qt = useQuotations.getState();
   const st = useSettings.getState();
+  const cs = useConsignment.getState();
+  const po = usePurchaseOrders.getState();
   const { set: _omit, ...settingsValue } = st as unknown as { set: unknown } & Record<string, unknown>;
   return {
     generatedAt: new Date().toISOString(),
-    version: 1,
+    version: 2,
     users: s.users,
     products: s.products,
     suppliers: s.suppliers,
@@ -52,6 +66,16 @@ export function buildSnapshot(): BackupSnapshot {
     quotations: qt.quotations,
     cashDrawers: cd.drawers,
     settings: settingsValue,
+    inventoryTransactions: s.inventoryTx,
+    stockBatches: s.batches,
+    purchaseOrders: po.pos,
+    consignment: {
+      owners: cs.owners,
+      items: cs.items,
+      sales: cs.sales,
+      returns: cs.returns,
+      settlements: cs.settlements,
+    },
   };
 }
 
@@ -86,6 +110,11 @@ export function snapshotToWorkbook(snap: BackupSnapshot): XLSX.WorkBook {
     { key: "Quotations", value: snap.quotations.length },
     { key: "Cash Drawers", value: snap.cashDrawers.length },
     { key: "Activity Logs", value: snap.logs.length },
+    { key: "Inventory Transactions", value: snap.inventoryTransactions.length },
+    { key: "Stock Batches", value: snap.stockBatches.length },
+    { key: "Purchase Orders", value: snap.purchaseOrders.length },
+    { key: "Consignment Owners", value: snap.consignment.owners.length },
+    { key: "Consignment Items", value: snap.consignment.items.length },
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(meta), "Summary");
 
@@ -101,6 +130,14 @@ export function snapshotToWorkbook(snap: BackupSnapshot): XLSX.WorkBook {
     ["Quotations", snap.quotations],
     ["CashDrawers", snap.cashDrawers],
     ["ActivityLogs", snap.logs],
+    ["InventoryTx", snap.inventoryTransactions],
+    ["StockBatches", snap.stockBatches],
+    ["PurchaseOrders", snap.purchaseOrders],
+    ["ConsignmentOwners", snap.consignment.owners],
+    ["ConsignmentItems", snap.consignment.items],
+    ["ConsignmentSales", snap.consignment.sales],
+    ["ConsignmentReturns", snap.consignment.returns],
+    ["ConsignmentSettlements", snap.consignment.settlements],
   ];
 
   for (const [name, rows] of sheets) {

@@ -57,6 +57,7 @@ import DeleteAccount from "./pages/DeleteAccount";
 import { useEffect, type ReactNode } from "react";
 import Logo from "@/components/Logo";
 import { runDailyAutoBackupIfDue } from "@/lib/backup";
+import { startDesktopAutoBackup } from "@/lib/desktopBackup";
 import { useSettings } from "@/lib/settings";
 import { useDropdowns } from "@/lib/dropdowns";
 import { useRoleSettings } from "@/lib/roleSettings";
@@ -173,6 +174,7 @@ function AuthBootstrap() {
     }
 
     let backupInterval: number | null = null;
+    const stopDesktopBackup = startDesktopAutoBackup();
     const onFocus = (): void => {
       runDailyAutoBackupIfDue();
     };
@@ -480,6 +482,7 @@ function AuthBootstrap() {
 
     return () => {
       if (backupInterval !== null) window.clearInterval(backupInterval);
+      stopDesktopBackup();
       if (settingsRefetchInterval !== null) {
         window.clearInterval(settingsRefetchInterval);
       }
