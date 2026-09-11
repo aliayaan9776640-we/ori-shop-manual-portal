@@ -532,7 +532,6 @@ export const useStore = create<AppState>()((set, get) => ({
         productsRes,
         customersRes,
         salesRes,
-        saleItemsRes,
         ordersRes,
         orderItemsRes,
         damagedRes,
@@ -549,7 +548,6 @@ export const useStore = create<AppState>()((set, get) => ({
           .select("*")
           .order("created_at", { ascending: false })
           .limit(500),
-        supabase.from("sale_items").select("*"),
         supabase.from("orders").select("*").order("created_at", { ascending: false }),
         supabase.from("order_items").select("*"),
         supabase
@@ -589,13 +587,6 @@ export const useStore = create<AppState>()((set, get) => ({
         (customersRes.data as CustomerRow[] | null)?.map(rowToCustomer) ?? [];
 
       if (salesRes.error) logErr("sales.select", salesRes.error);
-      if (saleItemsRes.error) {
-        logErr("sale_items.select", saleItemsRes.error);
-        toast.error("Bill items could not be loaded", {
-          description: saleItemsRes.error.message,
-        });
-      }
-
       // sales + sale_items
       interface SaleRow {
         id: string;
@@ -628,8 +619,41 @@ export const useStore = create<AppState>()((set, get) => ({
         line_total: number;
         line_profit: number;
       }
+      // Supabase applies a project row limit (normally 1,000) to an unrestricted
+      // select. Loading the whole sale_items table therefore returned only old
+      // rows once the shop passed that limit, making recent bills appear empty.
+      // Fetch only the loaded sales, in small chunks, and page every chunk so no
+      // bill silently loses its item names or receipt lines.
+      const saleItemRows: SaleItemRow[] = [];
+      const loadedSaleIds = ((salesRes.data as SaleRow[] | null) ?? []).map((sale) => sale.id);
+      let saleItemsLoadError: PostgrestError | null = null;
+      for (let start = 0; start < loadedSaleIds.length; start += 100) {
+        const ids = loadedSaleIds.slice(start, start + 100);
+        for (let page = 0; ; page += 1) {
+          const pageSize = 1000;
+          const response = await supabase
+            .from("sale_items")
+            .select("*")
+            .in("sale_id", ids)
+            .range(page * pageSize, (page + 1) * pageSize - 1);
+          if (response.error) {
+            saleItemsLoadError = response.error;
+            break;
+          }
+          const rows = (response.data as SaleItemRow[] | null) ?? [];
+          saleItemRows.push(...rows);
+          if (rows.length < pageSize) break;
+        }
+        if (saleItemsLoadError) break;
+      }
+      if (saleItemsLoadError) {
+        logErr("sale_items.select", saleItemsLoadError);
+        toast.error("Bill items could not be loaded", {
+          description: saleItemsLoadError.message,
+        });
+      }
       const saleItemsByOrder: Record<string, SaleItemRow[]> = {};
-      ((saleItemsRes.data as SaleItemRow[] | null) ?? []).forEach((si) => {
+      saleItemRows.forEach((si) => {
         if (!saleItemsByOrder[si.sale_id]) saleItemsByOrder[si.sale_id] = [];
         saleItemsByOrder[si.sale_id].push(si);
       });
