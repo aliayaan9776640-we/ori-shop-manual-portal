@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { useStore } from "@/lib/store";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 
 export type AuditAction =
   | "create"
@@ -73,11 +74,9 @@ export const useAuditLogs = create<AuditState>((set) => ({
       return;
     }
     set({ loading: true });
-    const { data, error } = await supabase
-      .from("audit_logs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(1000);
+    const { data, error } = await fetchAllRows((from, to) =>
+      supabase.from("audit_logs").select("*").order("created_at", { ascending: false }).range(from, to)
+    );
     if (error) {
       console.warn("[audit_logs.load]", error.message);
       set({ loading: false, loaded: true });

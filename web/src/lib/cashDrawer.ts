@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { writeAudit } from "@/lib/audit";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 
 export type DrawerStatus = "open" | "closed" | "approved";
 
@@ -294,11 +295,9 @@ export const useCashDrawers = create<CashDrawerState>()(
           return;
         }
         set({ loading: true });
-        const { data, error } = await supabase
-          .from("cash_drawers")
-          .select("*")
-          .order("opened_at", { ascending: false })
-          .limit(1000);
+        const { data, error } = await fetchAllRows((from, to) =>
+          supabase.from("cash_drawers").select("*").order("opened_at", { ascending: false }).range(from, to)
+        );
         if (error) {
           console.warn("[cash_drawers.load]", error.message);
           set({ loading: false, loaded: true });

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { toast } from "sonner";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 
 export type CreditSendKind = "bill" | "statement" | "reminder";
 export type CreditSendStatus = "pending" | "sent" | "failed" | "skipped";
@@ -83,11 +84,9 @@ export const useCreditSends = create<SendsState>()((set, get) => ({
   load: async () => {
     if (!isSupabaseConfigured) return;
     set({ loading: true });
-    const { data, error } = await supabase
-      .from("credit_send_queue")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(500);
+    const { data, error } = await fetchAllRows((from, to) =>
+      supabase.from("credit_send_queue").select("*").order("created_at", { ascending: false }).range(from, to)
+    );
     set({ loading: false });
     if (error) {
       if (TABLE_MISSING.test(error.message)) {

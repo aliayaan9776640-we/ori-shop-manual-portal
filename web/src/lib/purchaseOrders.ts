@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { useStore } from "./store";
+import { fetchAllRows } from "./fetchAllRows";
 import type {
   LastBuyingInfo,
   PurchaseOrder,
@@ -534,11 +535,8 @@ export const usePurchaseOrders = create<PoState>()((set, get) => ({
     set({ loading: true });
     try {
       const [poRes, itemsRes] = await Promise.all([
-        supabase
-          .from("purchase_orders")
-          .select("*")
-          .order("created_at", { ascending: false }),
-        supabase.from("purchase_order_items").select("*"),
+        fetchAllRows((from, to) => supabase.from("purchase_orders").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("purchase_order_items").select("*").range(from, to)),
       ]);
       if (poRes.error && isMissing(poRes.error)) {
         console.warn("[purchase_orders] table missing — run migration 0004");

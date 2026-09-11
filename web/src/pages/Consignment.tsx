@@ -510,6 +510,9 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
   const recordSale = useConsignment((s) => s.recordSale);
 
   const [filterOwner, setFilterOwner] = useState<string>("all");
+  const [itemQuery, setItemQuery] = useState("");
+  const [receivedFrom, setReceivedFrom] = useState("");
+  const [receivedTo, setReceivedTo] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ConsignmentItem | null>(null);
   const [form, setForm] = useState<ItemForm>(blankItem());
@@ -520,9 +523,19 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
   const [sellPrice, setSellPrice] = useState<number>(0);
   const [sellNotes, setSellNotes] = useState<string>("");
 
-  const visibleItems = items
-    .filter((i) => filterOwner === "all" || i.ownerId === filterOwner)
-    .filter((i) => i.active);
+  const visibleItems = useMemo(() => {
+    const q = itemQuery.trim().toLowerCase();
+    const from = receivedFrom || "";
+    const to = receivedTo || "9999-12-31";
+    return items
+      .filter((i) => filterOwner === "all" || i.ownerId === filterOwner)
+      .filter((i) => i.active)
+      .filter((i) => i.receivedDate >= from && i.receivedDate <= to)
+      .filter((i) => {
+        const owner = owners.find((owner) => owner.id === i.ownerId);
+        return !q || `${i.name} ${owner?.name ?? ""} ${i.notes ?? ""}`.toLowerCase().includes(q);
+      });
+  }, [items, owners, filterOwner, itemQuery, receivedFrom, receivedTo]);
 
   const openNew = (): void => {
     setEditing(null);
@@ -614,7 +627,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
   return (
     <>
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
+        <div className="grid flex-1 gap-2 sm:grid-cols-2 lg:grid-cols-[220px_minmax(240px,1fr)_170px_170px_auto]">
           <Select value={filterOwner} onValueChange={setFilterOwner}>
             <SelectTrigger className="w-52">
               <SelectValue />
@@ -628,6 +641,12 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
               ))}
             </SelectContent>
           </Select>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={itemQuery} onChange={(e) => setItemQuery(e.target.value)} placeholder="Search item, owner, or note…" className="pl-9" />
+          </div>
+          <Input type="date" aria-label="Received from date" value={receivedFrom} onChange={(e) => setReceivedFrom(e.target.value)} />
+          <Input type="date" aria-label="Received to date" value={receivedTo} onChange={(e) => setReceivedTo(e.target.value)} />
           <span className="text-sm text-muted-foreground">
             {visibleItems.length} item{visibleItems.length === 1 ? "" : "s"}
           </span>

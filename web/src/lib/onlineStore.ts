@@ -6,6 +6,7 @@ import {
 } from "./supabase";
 import { toast } from "sonner";
 import type { SaleItem } from "./types";
+import { fetchAllRows } from "./fetchAllRows";
 
 /* --------------------------------- types -------------------------------- */
 
@@ -850,15 +851,9 @@ export const useOnlineAdminStore = create<AdminOnlineState>((set, get) => ({
     if (!isSupabaseConfigured) return;
     set({ loading: true });
     const [ordersRes, itemsRes, customersRes] = await Promise.all([
-      supabase
-        .from("online_orders")
-        .select("*")
-        .order("created_at", { ascending: false }),
-      supabase.from("online_order_items").select("*"),
-      supabase
-        .from("public_customers")
-        .select("*")
-        .order("created_at", { ascending: false }),
+      fetchAllRows((from, to) => supabase.from("online_orders").select("*").order("created_at", { ascending: false }).range(from, to)),
+      fetchAllRows((from, to) => supabase.from("online_order_items").select("*").range(from, to)),
+      fetchAllRows((from, to) => supabase.from("public_customers").select("*").order("created_at", { ascending: false }).range(from, to)),
     ]);
     const firstErr =
       ordersRes.error?.message ||

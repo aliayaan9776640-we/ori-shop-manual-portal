@@ -30,6 +30,7 @@ import {
 import { supabase, isSupabaseConfigured } from "./supabase";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { toast } from "sonner";
+import { fetchAllRows } from "./fetchAllRows";
 
 /* ----------------------------- helpers ------------------------------ */
 
@@ -540,38 +541,17 @@ export const useStore = create<AppState>()((set, get) => ({
         invTxRes,
         batchesRes,
       ] = await Promise.all([
-        supabase.from("suppliers").select("*").order("name"),
-        supabase.from("products").select("*").order("name"),
-        supabase.from("customers").select("*").order("name"),
-        supabase
-          .from("sales")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(500),
-        supabase.from("orders").select("*").order("created_at", { ascending: false }),
-        supabase.from("order_items").select("*"),
-        supabase
-          .from("damaged_items")
-          .select("*")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("credit_transactions")
-          .select("*")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("activity_logs")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(200),
-        supabase
-          .from("inventory_transactions")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(2000),
-        supabase
-          .from("stock_batches")
-          .select("*")
-          .order("expiry_date", { ascending: true, nullsFirst: false }),
+        fetchAllRows((from, to) => supabase.from("suppliers").select("*").order("name").range(from, to)),
+        fetchAllRows((from, to) => supabase.from("products").select("*").order("name").range(from, to)),
+        fetchAllRows((from, to) => supabase.from("customers").select("*").order("name").range(from, to)),
+        fetchAllRows((from, to) => supabase.from("sales").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("orders").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("order_items").select("*").range(from, to)),
+        fetchAllRows((from, to) => supabase.from("damaged_items").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("credit_transactions").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("inventory_transactions").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("stock_batches").select("*").order("expiry_date", { ascending: true, nullsFirst: false }).range(from, to)),
       ]);
 
       const suppliers: Supplier[] =

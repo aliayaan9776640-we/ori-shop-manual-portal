@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { supabase, isSupabaseConfigured } from "./supabase";
+import { fetchAllRows } from "./fetchAllRows";
 import { useStore, rowToProduct } from "./store";
 import type { Product, UnitType, SaleItem } from "./types";
 
@@ -445,11 +446,11 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
     set({ loading: true });
     try {
       const [ownersRes, itemsRes, salesRes, returnsRes, settlementsRes] = await Promise.all([
-        supabase.from("consignment_owners").select("*").order("name"),
-        supabase.from("consignment_items").select("*").order("created_at", { ascending: false }),
-        supabase.from("consignment_sales").select("*").order("created_at", { ascending: false }).limit(2000),
-        supabase.from("consignment_returns").select("*").order("created_at", { ascending: false }),
-        supabase.from("consignment_settlements").select("*").order("created_at", { ascending: false }),
+        fetchAllRows((from, to) => supabase.from("consignment_owners").select("*").order("name").range(from, to)),
+        fetchAllRows((from, to) => supabase.from("consignment_items").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("consignment_sales").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("consignment_returns").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("consignment_settlements").select("*").order("created_at", { ascending: false }).range(from, to)),
       ]);
       if (ownersRes.error && isMissing(ownersRes.error)) {
         console.warn("[consignment] tables missing — run migration 0005_consignment.sql");
