@@ -254,62 +254,64 @@ export default function CreditSends(): JSX.Element {
       .catch(() => toast.error("Could not copy"));
   };
 
-  const sendViaDefault = async (item: (typeof items)[number]): Promise<void> => {
-    // Viber is the store's primary customer channel. Keep WhatsApp available
-    // as a secondary per-row action, but make the main action deterministic.
-    const channel = "viber";
+  const sendToChatApp = async (
+    item: (typeof items)[number],
+    channel: "whatsapp" | "viber"
+  ): Promise<void> => {
     const phone = (item.customerPhone ?? "").replace(/[^0-9+]/g, "");
     const phoneNoPlus = phone.replace(/^\+/, "");
     const subject = item.kind === "statement" ? "Credit Statement" : "Credit Bill";
-    if (channel === "whatsapp") {
-      if (!phone) {
-        toast.error("Customer has no phone number");
-        return;
+    if (!phone) {
+      toast.error("Customer has no phone number");
+      return;
+    }
+
+    // A WhatsApp/Viber URL can carry text but never a local file. Hand the PDF
+    // to the OS share sheet first so the chosen chat app receives an attachment.
+    if (item.kind === "statement" || item.kind === "bill") {
+      const out = await generatePdfForItem(item.id);
+      if (!out) return;
+      if (canSharePdfFile(out.file)) {
+        const result = await sharePdfFile(out.file, subject, item.message);
+        if (result.ok) {
+          toast.success(`${subject} PDF attached — choose ${channel === "viber" ? "Viber" : "WhatsApp"} and the customer chat`);
+          setInitiated((s) => ({ ...s, [item.id]: true }));
+          return;
+        }
+        if (result.reason === "cancelled") return;
       }
+
+      // Desktop browsers that do not support file sharing cannot attach a PDF
+      // through a chat deep-link. Download it and clearly require manual attach.
+      downloadBlob(out.blob, out.filename);
+      try {
+        await navigator.clipboard.writeText(item.message);
+      } catch {
+        // ignore
+      }
+      toast.message(`PDF downloaded — attach ${out.filename} in ${channel === "viber" ? "Viber" : "WhatsApp"}`);
+      return;
+    }
+
+    if (channel === "whatsapp") {
       const url = `https://wa.me/${phoneNoPlus}?text=${encodeURIComponent(item.message)}`;
       window.open(url, "_blank");
       toast.success("Opening WhatsApp");
     } else if (channel === "viber") {
-      if (!phone) {
-        toast.error("Customer has no phone number");
-        return;
-      }
-      if (item.kind === "statement" || item.kind === "bill") {
-        const out = await generatePdfForItem(item.id);
-        if (out && canSharePdfFile(out.file)) {
-          const result = await sharePdfFile(out.file, subject, item.message);
-          if (result.ok) {
-            toast.success(`${item.kind === "statement" ? "Statement" : "Credit bill"} PDF attached — select Viber and the customer chat`);
-            setInitiated((s) => ({ ...s, [item.id]: true }));
-            return;
-          }
-          if (result.reason === "cancelled") return;
-        }
-        if (out) downloadBlob(out.blob, out.filename);
-      }
       try {
         await navigator.clipboard.writeText(item.message);
       } catch {
         // ignore
       }
       window.location.href = `viber://chat?number=${encodeURIComponent(phone)}`;
-      toast.success(item.kind === "statement" || item.kind === "bill"
-        ? "PDF downloaded and message copied — attach in Viber"
-        : "Message copied — opening Viber");
-    } else if (channel === "email") {
-      const mailto = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(item.message)}`;
-      window.location.href = mailto;
-      toast.success("Opening email client");
-    } else {
-      try {
-        await navigator.clipboard.writeText(item.message);
-        toast.success("Message copied to clipboard");
-      } catch {
-        toast.error("Could not copy");
-        return;
-      }
+      toast.success("Message copied — opening Viber");
     }
     setInitiated((s) => ({ ...s, [item.id]: true }));
+  };
+
+  const sendViaDefault = async (item: (typeof items)[number]): Promise<void> => {
+    const channel = settings.creditDefaultSendMethod === "whatsapp" ? "whatsapp" : "viber";
+    await sendToChatApp(item, channel);
   };
 
   const generatePdfForItem = async (
@@ -417,7 +419,7 @@ export default function CreditSends(): JSX.Element {
     if (out) emailPdf(out.blob, out.filename, undefined, subject, body);
   };
 
-  const channelLabel = "Send via Viber";
+  const channelLabel = settings.creditDefaultSendMethod === "whatsapp" ? "Send via WhatsApp" : "Send via Viber";
 
   return (
     <>
@@ -582,7 +584,7 @@ export default function CreditSends(): JSX.Element {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => window.open(waUrl, "_blank")}
+                      onClick={() => { void sendToChatApp(it, "whatsapp"); }}
                       className="gap-1 border-emerald-300 text-emerald-800 hover:bg-emerald-50"
                     >
                       <Send className="h-3.5 w-3.5" /> WhatsApp
@@ -592,16 +594,13 @@ export default function CreditSends(): JSX.Element {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => {
-                        copy(it.message);
-                        window.location.href = viberUrl;
-                      }}
+                      onClick={() => { void sendToChatApp(it, "viber"); }}
                       className="gap-1 border-violet-300 text-violet-800 hover:bg-violet-50"
                     >
                       <MessageCircle className="h-3.5 w-3.5" /> Viber
                     </Button>
                   )}
-                  {it.kind === "statement" && (
+                  {(it.kind === "statement" || it.kind === "bill") && (
                     <>
                       <Button
                         size="sm"
@@ -630,22 +629,24 @@ export default function CreditSends(): JSX.Element {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => { void emailPdfAction(it.id, "Credit Statement", it.message); }}
+                        onClick={() => { void emailPdfAction(it.id, it.kind === "statement" ? "Credit Statement" : "Credit Bill", it.message); }}
                         className="gap-1"
                       >
                         <Mail className="h-3.5 w-3.5" /> Email PDF
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          const d = renderStatementForItem(it.id);
-                          if (d) printCreditStatement(d);
-                        }}
-                        className="gap-1"
-                      >
-                        Preview
-                      </Button>
+                      {it.kind === "statement" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const d = renderStatementForItem(it.id);
+                            if (d) printCreditStatement(d);
+                          }}
+                          className="gap-1"
+                        >
+                          Preview
+                        </Button>
+                      )}
                     </>
                   )}
                   {it.status !== "sent" && (
