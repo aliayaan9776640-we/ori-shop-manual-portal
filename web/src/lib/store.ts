@@ -745,6 +745,7 @@ export const useStore = create<AppState>()((set, get) => ({
         id: string;
         product_id: string;
         qty: number;
+        entered_qty?: number | null;
         unit_type: DamagedItem["unit"];
         reason: string | null;
         landed_cost_per_unit: number;
@@ -766,7 +767,7 @@ export const useStore = create<AppState>()((set, get) => ({
             name: p?.name ?? "(deleted)",
             qty: d.qty,
             unit: d.unit_type,
-            unitQty: d.qty,
+            unitQty: d.entered_qty == null ? d.qty : Number(d.entered_qty),
             reason: d.reason ?? "",
             date: d.created_at,
             valueLoss: Number(d.loss_amount),
@@ -2301,6 +2302,7 @@ export const useStore = create<AppState>()((set, get) => ({
         .insert({
           product_id: d.productId,
           qty: d.qty,
+          entered_qty: d.unitQty,
           unit_type: d.unit,
           reason: d.reason,
           landed_cost_per_unit: lcpp,

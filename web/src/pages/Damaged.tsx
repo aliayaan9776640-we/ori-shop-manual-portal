@@ -31,8 +31,11 @@ const UNIT_TO_PIECES = (unit: UnitType, unitQty: number, piecesPerCase: number):
   if (unit === "case" || unit === "box") return Math.round(unitQty * ppCase);
   // Weight-based inventory is stored in its base KG/gram quantity and must
   // retain decimals (for example 0.355 kg). Counted units stay whole numbers.
-  if (unit === "kg" || unit === "gm") {
+  if (unit === "kg" || unit === "kilogram") {
     return Math.round((unitQty + Number.EPSILON) * 1000) / 1000;
+  }
+  if (unit === "gm" || unit === "g" || unit === "gram") {
+    return Math.round((unitQty / 1000 + Number.EPSILON) * 1000) / 1000;
   }
   return Math.round(unitQty);
 };
@@ -426,6 +429,7 @@ export default function Damaged() {
                   : [
                       { id: "u-piece", value: "piece", label: "Piece" },
                       { id: "u-kg", value: "kg", label: "KG" },
+                      { id: "u-g", value: "g", label: "Gram" },
                       { id: "u-tin", value: "tin", label: "Tin" },
                       { id: "u-box", value: "box", label: "Box" },
                       { id: "u-case", value: "case", label: "Case" },
@@ -435,6 +439,9 @@ export default function Damaged() {
                     {u.label}
                   </option>
                 ))}
+                {!unitOptions.some((u) => ["g", "gm", "gram"].includes(u.value.toLowerCase())) && unitOptions.length > 0 && (
+                  <option value="g">Gram</option>
+                )}
                 {!unitOptions.some((u) => u.value === unit) && unitOptions.length > 0 && (
                   <option value={unit}>{unit} (legacy)</option>
                 )}
@@ -485,10 +492,10 @@ export default function Damaged() {
               </div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
                 <Detail k="Product" v={product.name} />
-                <Detail k="Damage qty" v={`${unitQty} ${unit} (${previewPieces} pcs)`} />
+                <Detail k="Damage qty" v={`${unitQty} ${unit} (${previewPieces} ${product.unit})`} />
                 <Detail k="Landed cost / pc" v={formatCurrency(previewLcpp)} />
-                <Detail k="Stock before" v={`${product.stockPieces} pcs`} />
-                <Detail k="Stock after" v={`${previewStockAfter} pcs`} />
+                <Detail k="Stock before" v={`${product.stockPieces} ${product.unit}`} />
+                <Detail k="Stock after" v={`${previewStockAfter} ${product.unit}`} />
                 <Detail k="Date" v={formatDate(new Date().toISOString())} />
               </div>
               <div className="mt-3 flex items-center justify-between rounded-lg bg-destructive/10 px-4 py-3">
