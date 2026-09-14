@@ -705,7 +705,7 @@ export default function Sales() {
         amount: grandTotal,
         kind: "bill",
         message: creditMessage,
-        link: null,
+        link: `sale:${sale.id}`,
       });
     } else {
       setLastCreditBill(null);
@@ -1830,7 +1830,7 @@ function CreditBillActions({
       amount: bill.total,
       kind: "bill",
       message: baseMessage,
-      link: null,
+      link: `sale:${bill.saleId}`,
     });
     toast.success("Queued in Pending Sends");
   };

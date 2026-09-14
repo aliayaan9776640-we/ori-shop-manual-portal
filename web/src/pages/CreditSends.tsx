@@ -8,6 +8,8 @@ import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
   printCreditStatement,
   generateCreditStatementPdf,
+  generateCreditBillPdf,
+  type CreditBillData,
   type StatementData,
   type StatementEntry,
 } from "@/lib/creditBill";
@@ -44,6 +46,7 @@ export default function CreditSends(): JSX.Element {
   const tableMissing = useCreditSends((s) => s.tableMissing);
   const customers = useStore((s) => s.customers);
   const creditTx = useStore((s) => s.creditTx);
+  const sales = useStore((s) => s.sales);
   const settings = useSettings();
   const me = useCurrentUser();
   const [filter, setFilter] = useState<CreditSendStatus | "all">("pending");
@@ -271,12 +274,12 @@ export default function CreditSends(): JSX.Element {
         toast.error("Customer has no phone number");
         return;
       }
-      if (item.kind === "statement") {
+      if (item.kind === "statement" || item.kind === "bill") {
         const out = await generatePdfForItem(item.id);
         if (out && canSharePdfFile(out.file)) {
           const result = await sharePdfFile(out.file, subject, item.message);
           if (result.ok) {
-            toast.success("Statement PDF shared — select Viber");
+            toast.success(`${item.kind === "statement" ? "Statement" : "Credit bill"} PDF attached — select Viber and the customer chat`);
             setInitiated((s) => ({ ...s, [item.id]: true }));
             return;
           }
@@ -290,7 +293,7 @@ export default function CreditSends(): JSX.Element {
         // ignore
       }
       window.location.href = `viber://chat?number=${encodeURIComponent(phone)}`;
-      toast.success(item.kind === "statement"
+      toast.success(item.kind === "statement" || item.kind === "bill"
         ? "PDF downloaded and message copied — attach in Viber"
         : "Message copied — opening Viber");
     } else if (channel === "email") {
@@ -314,17 +317,61 @@ export default function CreditSends(): JSX.Element {
   ): Promise<{ blob: Blob; file: File; filename: string } | null> => {
     const item = items.find((x) => x.id === id);
     if (!item) return null;
-    if (item.kind !== "statement") {
-      toast.error("PDF generation only available for statements in the queue");
-      return null;
-    }
-    const d = renderStatementForItem(id);
-    if (!d) {
-      toast.error("Could not build statement");
-      return null;
-    }
     try {
-      return await generateCreditStatementPdf(d);
+      if (item.kind === "statement") {
+        const statement = renderStatementForItem(id);
+        if (!statement) {
+          toast.error("Could not build statement");
+          return null;
+        }
+        return await generateCreditStatementPdf(statement);
+      }
+      if (item.kind === "bill") {
+        const referencedId = item.link?.startsWith("sale:") ? item.link.slice(5) : undefined;
+        const matchingTx = creditTx
+          .filter((tx) => tx.customerId === item.customerId && tx.type === "sale")
+          .sort((a, b) => Math.abs(new Date(a.date).getTime() - new Date(item.createdAt).getTime()) - Math.abs(new Date(b.date).getTime() - new Date(item.createdAt).getTime()))
+          .find((tx) => !referencedId || tx.saleId === referencedId);
+        const sale = sales.find((entry) => entry.id === (referencedId ?? matchingTx?.saleId));
+        const customer = customers.find((entry) => entry.id === item.customerId);
+        if (!sale || !customer || sale.items.length === 0) {
+          toast.error("Could not rebuild this credit bill from its sale items");
+          return null;
+        }
+        const transactionTime = new Date(sale.date).getTime();
+        const previousBalance = creditTx
+          .filter((tx) => tx.customerId === customer.id && new Date(tx.date).getTime() < transactionTime)
+          .reduce((balance, tx) => balance + (tx.type === "sale" ? tx.amount : -tx.amount), 0);
+        const subtotal = sale.items.reduce((sum, line) => sum + line.total, 0);
+        const gstSubtotal = sale.items.filter((line) => line.gstApplicable !== false).reduce((sum, line) => sum + line.total, 0);
+        const bill: CreditBillData = {
+          invoiceNo: sale.id.slice(-8).toUpperCase(),
+          saleId: sale.id,
+          date: sale.date,
+          cashierName: useStore.getState().users.find((user) => user.id === sale.cashierId)?.fullName,
+          customerName: customer.name,
+          customerPhone: customer.phone,
+          customerAddress: customer.address,
+          items: sale.items.map((line) => ({ name: line.name, qty: line.unitQty || line.qty, unit: line.unit, price: line.price, total: line.total, gstApplicable: line.gstApplicable })),
+          subtotal,
+          gstSubtotal,
+          nonGstSubtotal: subtotal - gstSubtotal,
+          discount: 0,
+          bag: 0,
+          gstPercent: settings.gstPercent,
+          gstAmount: Math.max(0, sale.total - subtotal),
+          total: sale.total,
+          previousBalance,
+          newBalance: previousBalance + sale.total,
+          creditLimit: customer.creditLimit,
+          remainingCreditLimit: Math.max(0, customer.creditLimit - previousBalance - sale.total),
+          shopName: settings.shopName,
+          footer: settings.receiptFooter,
+        };
+        return await generateCreditBillPdf(bill);
+      }
+      toast.error("No PDF is available for this reminder");
+      return null;
     } catch (e) {
       console.error("[creditSends] pdf gen failed", e);
       toast.error("Could not generate PDF");

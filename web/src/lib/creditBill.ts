@@ -81,7 +81,7 @@ const buildCreditBillHtml = (d: CreditBillData): string => {
 
   .header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:3px solid #b45309;padding-bottom:14px;margin-bottom:18px}
   .brand{display:flex;align-items:center;gap:14px}
-  .brand img{width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid #b45309;background:#fff}
+  .brand img{width:64px;height:64px;border-radius:50%;object-fit:contain;padding:2px;border:2px solid #b45309;background:#fff}
   .brand .name{font-size:22px;font-weight:800;letter-spacing:-0.01em;line-height:1.1}
   .brand .tag{font-size:11px;color:#b45309;font-weight:700;letter-spacing:.18em;text-transform:uppercase;margin-top:2px}
   .contact{text-align:right;font-size:11px;line-height:1.55;color:#475569}
@@ -302,7 +302,7 @@ const buildStatementHtml = (d: StatementData): string => {
   .content{position:relative;z-index:1}
   .header{display:flex;justify-content:space-between;gap:16px;border-bottom:3px solid #0f766e;padding-bottom:14px;margin-bottom:18px}
   .brand{display:flex;align-items:center;gap:14px}
-  .brand img{width:60px;height:60px;border-radius:50%;object-fit:cover;border:2px solid #0f766e;background:#fff}
+  .brand img{width:64px;height:64px;border-radius:50%;object-fit:contain;padding:2px;border:2px solid #0f766e;background:#fff}
   .brand .name{font-size:22px;font-weight:800;line-height:1.1}
   .brand .tag{font-size:11px;color:#0f766e;font-weight:700;letter-spacing:.18em;text-transform:uppercase;margin-top:2px}
   .contact{text-align:right;font-size:11px;line-height:1.55;color:#475569}
