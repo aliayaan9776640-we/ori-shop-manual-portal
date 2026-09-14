@@ -47,6 +47,7 @@ import { Link } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { Lock, DoorOpen } from "lucide-react";
 import { readPosHolds, writePosHolds, type PosHold } from "@/lib/posHolds";
+import { publicCreditUrl } from "@/lib/publicUrl";
 
 interface CartLine {
   productId: string;
@@ -697,7 +698,8 @@ export default function Sales() {
       };
       setLastCreditBill(cb);
       setLastCreditCustomerId(cust.id);
-      const creditMessage = `Hello ${cust.name},\nYour credit purchase of MVR ${grandTotal.toFixed(2)} has been recorded.\nNew credit balance: MVR ${newBalance.toFixed(2)}.\nThank you.`;
+      const publicUrl = publicCreditUrl(cust.publicToken);
+      const creditMessage = `Hello ${cust.name},\nYour credit purchase of MVR ${grandTotal.toFixed(2)} has been recorded.\nNew credit balance: MVR ${newBalance.toFixed(2)}.${publicUrl ? `\nView your credit bill: ${publicUrl}` : ""}\nThank you.`;
       void enqueueSend({
         customerId: cust.id,
         customerName: cust.name,
@@ -1756,6 +1758,7 @@ function CreditBillActions({
   customerId: string;
   enqueue: ReturnType<typeof useCreditSends.getState>["enqueue"];
 }) {
+  const customer = useStore((state) => state.customers.find((entry) => entry.id === customerId));
   const [busy, setBusy] = useState(false);
   const [pdf, setPdf] = useState<{ blob: Blob; file: File; filename: string } | null>(null);
 
@@ -1775,7 +1778,8 @@ function CreditBillActions({
     }
   };
 
-  const baseMessage = `Hello ${bill.customerName},\nYour credit bill #${bill.invoiceNo} for MVR ${bill.total.toFixed(2)} is attached.\nNew balance: MVR ${bill.newBalance.toFixed(2)}.\nThank you.`;
+  const publicUrl = publicCreditUrl(customer?.publicToken);
+  const baseMessage = `Hello ${bill.customerName},\nYour credit bill #${bill.invoiceNo} for MVR ${bill.total.toFixed(2)} is attached.\nNew balance: MVR ${bill.newBalance.toFixed(2)}.${publicUrl ? `\nView your credit bill: ${publicUrl}` : ""}\nThank you.`;
 
   const onDownload = async (): Promise<void> => {
     const out = await ensurePdf();

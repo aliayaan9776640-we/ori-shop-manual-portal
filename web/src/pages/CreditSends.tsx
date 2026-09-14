@@ -36,6 +36,7 @@ import {
   Printer,
 } from "lucide-react";
 import { toast } from "sonner";
+import { publicCreditUrl } from "@/lib/publicUrl";
 
 export default function CreditSends(): JSX.Element {
   const items = useCreditSends((s) => s.items);
@@ -254,6 +255,14 @@ export default function CreditSends(): JSX.Element {
       .catch(() => toast.error("Could not copy"));
   };
 
+  const messageWithPublicLink = (item: (typeof items)[number]): string => {
+    const customer = customers.find((entry) => entry.id === item.customerId);
+    const url = publicCreditUrl(customer?.publicToken);
+    if (!url || item.message.includes(url)) return item.message;
+    const label = item.kind === "bill" ? "View your credit bill" : "View your credit statement";
+    return `${item.message.trim()}\n${label}: ${url}`;
+  };
+
   const sendToChatApp = async (
     item: (typeof items)[number],
     channel: "whatsapp" | "viber"
@@ -261,6 +270,7 @@ export default function CreditSends(): JSX.Element {
     const phone = (item.customerPhone ?? "").replace(/[^0-9+]/g, "");
     const phoneNoPlus = phone.replace(/^\+/, "");
     const subject = item.kind === "statement" ? "Credit Statement" : "Credit Bill";
+    const message = messageWithPublicLink(item);
     if (!phone) {
       toast.error("Customer has no phone number");
       return;
@@ -272,7 +282,7 @@ export default function CreditSends(): JSX.Element {
       const out = await generatePdfForItem(item.id);
       if (!out) return;
       if (canSharePdfFile(out.file)) {
-        const result = await sharePdfFile(out.file, subject, item.message);
+        const result = await sharePdfFile(out.file, subject, message);
         if (result.ok) {
           toast.success(`${subject} PDF attached — choose ${channel === "viber" ? "Viber" : "WhatsApp"} and the customer chat`);
           setInitiated((s) => ({ ...s, [item.id]: true }));
@@ -285,7 +295,7 @@ export default function CreditSends(): JSX.Element {
       // through a chat deep-link. Download it and clearly require manual attach.
       downloadBlob(out.blob, out.filename);
       try {
-        await navigator.clipboard.writeText(item.message);
+        await navigator.clipboard.writeText(message);
       } catch {
         // ignore
       }
@@ -294,12 +304,12 @@ export default function CreditSends(): JSX.Element {
     }
 
     if (channel === "whatsapp") {
-      const url = `https://wa.me/${phoneNoPlus}?text=${encodeURIComponent(item.message)}`;
+      const url = `https://wa.me/${phoneNoPlus}?text=${encodeURIComponent(message)}`;
       window.open(url, "_blank");
       toast.success("Opening WhatsApp");
     } else if (channel === "viber") {
       try {
-        await navigator.clipboard.writeText(item.message);
+        await navigator.clipboard.writeText(message);
       } catch {
         // ignore
       }
@@ -503,8 +513,9 @@ export default function CreditSends(): JSX.Element {
         <div className="space-y-3">
           {visible.map((it) => {
             const phone = (it.customerPhone ?? "").replace(/[^0-9+]/g, "");
+            const shareMessage = messageWithPublicLink(it);
             const waUrl = phone
-              ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(it.message)}`
+              ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(shareMessage)}`
               : null;
             const viberUrl = phone
               ? `viber://chat?number=${encodeURIComponent(phone)}`
@@ -559,7 +570,7 @@ export default function CreditSends(): JSX.Element {
                 </div>
 
                 <pre className="mt-3 whitespace-pre-wrap rounded-lg bg-secondary/40 px-3 py-2 text-xs">
-                  {it.message}
+                  {shareMessage}
                 </pre>
 
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -575,7 +586,7 @@ export default function CreditSends(): JSX.Element {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => copy(it.message)}
+                    onClick={() => copy(shareMessage)}
                     className="gap-1"
                   >
                     <Copy className="h-3.5 w-3.5" /> Copy Message
@@ -621,7 +632,7 @@ export default function CreditSends(): JSX.Element {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => { void sharePdf(it.id, it.message); }}
+                        onClick={() => { void sharePdf(it.id, shareMessage); }}
                         className="gap-1"
                       >
                         <Share2 className="h-3.5 w-3.5" /> Share PDF
@@ -629,7 +640,7 @@ export default function CreditSends(): JSX.Element {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => { void emailPdfAction(it.id, it.kind === "statement" ? "Credit Statement" : "Credit Bill", it.message); }}
+                        onClick={() => { void emailPdfAction(it.id, it.kind === "statement" ? "Credit Statement" : "Credit Bill", shareMessage); }}
                         className="gap-1"
                       >
                         <Mail className="h-3.5 w-3.5" /> Email PDF
