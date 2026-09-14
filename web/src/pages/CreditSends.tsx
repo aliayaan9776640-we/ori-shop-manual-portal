@@ -38,6 +38,14 @@ import {
 import { toast } from "sonner";
 import { publicCreditUrl } from "@/lib/publicUrl";
 
+const internationalPhone = (value?: string | null): string => {
+  let digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  // Customer records commonly store the seven-digit Maldives local number.
+  if (digits.length === 7) digits = `960${digits}`;
+  return digits ? `+${digits}` : "";
+};
+
 export default function CreditSends(): JSX.Element {
   const items = useCreditSends((s) => s.items);
   const load = useCreditSends((s) => s.load);
@@ -267,7 +275,7 @@ export default function CreditSends(): JSX.Element {
     item: (typeof items)[number],
     channel: "whatsapp" | "viber"
   ): Promise<void> => {
-    const phone = (item.customerPhone ?? "").replace(/[^0-9+]/g, "");
+    const phone = internationalPhone(item.customerPhone);
     const phoneNoPlus = phone.replace(/^\+/, "");
     const subject = item.kind === "statement" ? "Credit Statement" : "Credit Bill";
     const message = messageWithPublicLink(item);
@@ -284,7 +292,12 @@ export default function CreditSends(): JSX.Element {
       if (canSharePdfFile(out.file)) {
         const result = await sharePdfFile(out.file, subject, message);
         if (result.ok) {
-          toast.success(`${subject} PDF shared and message copied — paste the message if ${channel === "viber" ? "Viber" : "WhatsApp"} does not add it`);
+          if (channel === "whatsapp") {
+            window.location.href = `https://wa.me/${phoneNoPlus}?text=${encodeURIComponent(message)}`;
+          } else {
+            window.location.href = `viber://chat?number=${encodeURIComponent(phone)}`;
+          }
+          toast.success(`${subject} PDF shared — opening the saved customer number; paste the copied message if needed`);
           setInitiated((s) => ({ ...s, [item.id]: true }));
           return;
         }
@@ -512,7 +525,7 @@ export default function CreditSends(): JSX.Element {
       ) : (
         <div className="space-y-3">
           {visible.map((it) => {
-            const phone = (it.customerPhone ?? "").replace(/[^0-9+]/g, "");
+            const phone = internationalPhone(it.customerPhone);
             const shareMessage = messageWithPublicLink(it);
             const waUrl = phone
               ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(shareMessage)}`
