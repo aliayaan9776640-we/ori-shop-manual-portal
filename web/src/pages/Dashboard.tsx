@@ -134,6 +134,12 @@ function useDashboardData() {
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const startOfYear = new Date(today.getFullYear(), 0, 1);
 
+    const damageFrom = (from: Date): number => {
+      const f = from.getTime();
+      return damaged
+        .filter((entry) => new Date(entry.date).getTime() >= f)
+        .reduce((sum, entry) => sum + entry.valueLoss, 0);
+    };
     const sumRange = (from: Date): { revenue: number; profit: number; count: number } => {
       const f = from.getTime();
       let revenue = 0, profit = 0, count = 0;
@@ -142,11 +148,13 @@ function useDashboardData() {
           revenue += s.total; profit += s.profit; count += 1;
         }
       }
+      profit -= damageFrom(from);
       return { revenue, profit, count };
     };
 
     const todays = sales.filter((s) => isSameDay(s.date, now));
-    const todayTotals = { revenue: todays.reduce((a, x) => a + x.total, 0), profit: todays.reduce((a, x) => a + x.profit, 0), count: todays.length };
+    const todayDamage = damaged.filter((entry) => isSameDay(entry.date, now)).reduce((sum, entry) => sum + entry.valueLoss, 0);
+    const todayTotals = { revenue: todays.reduce((a, x) => a + x.total, 0), profit: todays.reduce((a, x) => a + x.profit, 0) - todayDamage, count: todays.length };
     const week = sumRange(startOfWeek);
     const month = sumRange(startOfMonth);
     const year = sumRange(startOfYear);
@@ -176,10 +184,11 @@ function useDashboardData() {
     for (let i = 6; i >= 0; i--) {
       const d = new Date(); d.setDate(d.getDate() - i);
       const ds = sales.filter((s) => isSameDay(s.date, d));
+      const dayDamage = damaged.filter((entry) => isSameDay(entry.date, d)).reduce((sum, entry) => sum + entry.valueLoss, 0);
       last7.push({
         day: d.toLocaleDateString("en-US", { weekday: "short" }),
         revenue: ds.reduce((s, x) => s + x.total, 0),
-        profit: ds.reduce((s, x) => s + x.profit, 0),
+        profit: ds.reduce((s, x) => s + x.profit, 0) - dayDamage,
       });
     }
 
@@ -206,6 +215,13 @@ function useDashboardData() {
         cur.profit += it.profit; cur.qty += it.qty;
         monthMap.set(it.productId, cur);
       }));
+    damaged
+      .filter((entry) => new Date(entry.date).getTime() >= startOfMonth.getTime())
+      .forEach((entry) => {
+        const cur = monthMap.get(entry.productId) ?? { name: entry.name, profit: 0, qty: 0 };
+        cur.profit -= entry.valueLoss;
+        monthMap.set(entry.productId, cur);
+      });
     const profitByItem = Array.from(monthMap.values()).sort((a, b) => b.profit - a.profit).slice(0, 5);
 
     // Cashier summary

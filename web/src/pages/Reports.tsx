@@ -102,7 +102,7 @@ export default function Reports() {
 
   const summary = useMemo(() => {
     const totalSales = filteredSales.reduce((a, b) => a + b.total, 0);
-    const totalProfit = filteredSales.reduce((a, b) => a + b.profit, 0);
+    const grossProfit = filteredSales.reduce((a, b) => a + b.profit, 0);
     let gstItemRev = 0;
     let nonGstItemRev = 0;
     filteredSales.forEach((s) =>
@@ -131,8 +131,10 @@ export default function Reports() {
     const damageLoss = damaged
       .filter((d) => inRange(d.date))
       .reduce((a, b) => a + b.valueLoss, 0);
+    const totalProfit = grossProfit - damageLoss;
     return {
       totalSales,
+      grossProfit,
       totalProfit,
       cash,
       card,
@@ -204,18 +206,26 @@ export default function Reports() {
     }
 
     if (tab === "profit") {
-      const map = new Map<string, { qty: number; rev: number; profit: number; name: string }>();
+      const map = new Map<string, { qty: number; rev: number; profit: number; damage: number; name: string }>();
       sales
         .filter((s) => inRange(s.date))
         .forEach((s) =>
           s.items.forEach((it) => {
-            const cur = map.get(it.productId) ?? { qty: 0, rev: 0, profit: 0, name: it.name };
+            const cur = map.get(it.productId) ?? { qty: 0, rev: 0, profit: 0, damage: 0, name: it.name };
             cur.qty += it.qty;
             cur.rev += it.total;
             cur.profit += it.profit;
             map.set(it.productId, cur);
           })
         );
+      damaged
+        .filter((entry) => inRange(entry.date))
+        .forEach((entry) => {
+          const cur = map.get(entry.productId) ?? { qty: 0, rev: 0, profit: 0, damage: 0, name: entry.name };
+          cur.damage += entry.valueLoss;
+          cur.profit -= entry.valueLoss;
+          map.set(entry.productId, cur);
+        });
       const rows: Row[] = Array.from(map.values())
         .sort((a, b) => b.profit - a.profit)
         .map((v) => {
@@ -226,13 +236,14 @@ export default function Reports() {
             Product: v.name,
             "Qty Sold": v.qty,
             Revenue: v.rev,
-            Profit: v.profit,
+            "Damaged Cost": v.damage,
+            "Net Profit": v.profit,
             "Margin %": `${marginPct.toFixed(1)}%`,
             "Markup %": `${markupPct.toFixed(1)}%`,
           };
         })
         .filter((r) => filterRow(Object.values(r)));
-      return { title: "Profit by Product", headers: ["Product", "Qty Sold", "Revenue", "Profit", "Margin %", "Markup %"], rows };
+      return { title: "Profit by Product", headers: ["Product", "Qty Sold", "Revenue", "Damaged Cost", "Net Profit", "Margin %", "Markup %"], rows };
     }
     if (tab === "fast") {
       const map = new Map<string, { qty: number; rev: number; profit: number; name: string }>();
@@ -879,9 +890,11 @@ export default function Reports() {
       )}
 
       {(tab === "profit" || tab === "damage") && (
-        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-8">
           <SumCard label="Total Sales" value={formatCurrency(summary.totalSales)} tone="primary" />
-          <SumCard label="Total Profit" value={formatCurrency(summary.totalProfit)} tone="success" />
+          <SumCard label="Gross Profit" value={formatCurrency(summary.grossProfit)} tone="success" />
+          <SumCard label="Damaged Cost" value={`-${formatCurrency(summary.damageLoss)}`} tone="warning" />
+          <SumCard label="Net Profit" value={formatCurrency(summary.totalProfit)} tone="success" />
           <SumCard label="Cash" value={formatCurrency(summary.cash)} />
           <SumCard label="Card" value={formatCurrency(summary.card)} />
           <SumCard label="Bank Transfer" value={formatCurrency(summary.bank)} />
