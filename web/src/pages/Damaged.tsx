@@ -29,7 +29,12 @@ import NumInput from "@/components/NumInput";
 const UNIT_TO_PIECES = (unit: UnitType, unitQty: number, piecesPerCase: number): number => {
   const ppCase = Math.max(1, piecesPerCase || 1);
   if (unit === "case" || unit === "box") return Math.round(unitQty * ppCase);
-  return Math.round(unitQty); // piece, kg, tin treated as base units
+  // Weight-based inventory is stored in its base KG/gram quantity and must
+  // retain decimals (for example 0.355 kg). Counted units stay whole numbers.
+  if (unit === "kg" || unit === "gm") {
+    return Math.round((unitQty + Number.EPSILON) * 1000) / 1000;
+  }
+  return Math.round(unitQty);
 };
 
 export default function Damaged() {
