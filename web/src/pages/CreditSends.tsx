@@ -277,49 +277,16 @@ export default function CreditSends(): JSX.Element {
   ): Promise<void> => {
     const phone = internationalPhone(item.customerPhone);
     const phoneNoPlus = phone.replace(/^\+/, "");
-    const subject = item.kind === "statement" ? "Credit Statement" : "Credit Bill";
     const message = messageWithPublicLink(item);
     if (!phone) {
       toast.error("Customer has no phone number");
       return;
     }
 
-    // A WhatsApp/Viber URL can carry text but never a local file. Hand the PDF
-    // to the OS share sheet first so the chosen chat app receives an attachment.
-    if (item.kind === "statement" || item.kind === "bill") {
-      const out = await generatePdfForItem(item.id);
-      if (!out) return;
-      if (canSharePdfFile(out.file)) {
-        const result = await sharePdfFile(out.file, subject, message);
-        if (result.ok) {
-          if (channel === "whatsapp") {
-            window.location.href = `https://wa.me/${phoneNoPlus}?text=${encodeURIComponent(message)}`;
-          } else {
-            window.location.href = `viber://chat?number=${encodeURIComponent(phone)}`;
-          }
-          toast.success(`${subject} PDF shared — opening the saved customer number; paste the copied message if needed`);
-          setInitiated((s) => ({ ...s, [item.id]: true }));
-          return;
-        }
-        if (result.reason === "cancelled") return;
-      }
-
-      // Desktop browsers that do not support file sharing cannot attach a PDF
-      // through a chat deep-link. Download it and clearly require manual attach.
-      downloadBlob(out.blob, out.filename);
-      try {
-        await navigator.clipboard.writeText(message);
-      } catch {
-        // ignore
-      }
-      toast.message(`PDF downloaded — attach ${out.filename} in ${channel === "viber" ? "Viber" : "WhatsApp"}`);
-      return;
-    }
-
     if (channel === "whatsapp") {
       const url = `https://wa.me/${phoneNoPlus}?text=${encodeURIComponent(message)}`;
       window.open(url, "_blank");
-      toast.success("Opening WhatsApp");
+      toast.success("Opening the customer's WhatsApp chat with the bill link");
     } else if (channel === "viber") {
       try {
         await navigator.clipboard.writeText(message);
@@ -327,7 +294,7 @@ export default function CreditSends(): JSX.Element {
         // ignore
       }
       window.location.href = `viber://chat?number=${encodeURIComponent(phone)}`;
-      toast.success("Message copied — opening Viber");
+      toast.success("Message and bill link copied — opening the customer's Viber chat");
     }
     setInitiated((s) => ({ ...s, [item.id]: true }));
   };
