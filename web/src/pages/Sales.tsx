@@ -1802,7 +1802,7 @@ function CreditBillActions({
     if (!out) return;
     if (canSharePdfFile(out.file)) {
       const r = await sharePdfFile(out.file, `Credit Bill ${bill.invoiceNo}`, baseMessage);
-      if (r.ok) toast.success("Shared");
+      if (r.ok) toast.success("PDF shared and message copied — paste it if the chat app omits the caption");
       else if (r.reason === "cancelled") return;
       else if (r.reason === "unsupported") {
         downloadBlob(out.blob, out.filename);

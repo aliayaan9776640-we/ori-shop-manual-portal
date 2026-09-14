@@ -202,6 +202,14 @@ export const sharePdfFile = async (
     return { ok: false, reason: "unsupported" };
   }
   try {
+    // Several Windows share targets (notably WhatsApp and Viber desktop)
+    // accept the file but silently discard Web Share's text field. Copy the
+    // same caption first so it is ready to paste into the selected chat.
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Clipboard access is best-effort; file sharing must still continue.
+    }
     await nav.share({ files: [file], title, text });
     return { ok: true };
   } catch (e) {

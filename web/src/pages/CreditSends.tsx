@@ -284,7 +284,7 @@ export default function CreditSends(): JSX.Element {
       if (canSharePdfFile(out.file)) {
         const result = await sharePdfFile(out.file, subject, message);
         if (result.ok) {
-          toast.success(`${subject} PDF attached — choose ${channel === "viber" ? "Viber" : "WhatsApp"} and the customer chat`);
+          toast.success(`${subject} PDF shared and message copied — paste the message if ${channel === "viber" ? "Viber" : "WhatsApp"} does not add it`);
           setInitiated((s) => ({ ...s, [item.id]: true }));
           return;
         }
@@ -407,7 +407,7 @@ export default function CreditSends(): JSX.Element {
     if (!out) return;
     if (canSharePdfFile(out.file)) {
       const r = await sharePdfFile(out.file, "Credit Statement", message);
-      if (r.ok) toast.success("Shared");
+      if (r.ok) toast.success("PDF shared and message copied — paste it if the chat app omits the caption");
       else if (r.reason === "unsupported") {
         downloadBlob(out.blob, out.filename);
         toast.message("Sharing not supported \u2014 PDF downloaded");
