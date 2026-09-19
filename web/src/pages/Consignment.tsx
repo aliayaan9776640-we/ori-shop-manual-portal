@@ -1112,6 +1112,9 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
   const [periodFrom, setPeriodFrom] = useState("");
   const [periodTo, setPeriodTo] = useState("");
   const [notes, setNotes] = useState("");
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
 
   const openNew = (ownerIdInit?: string, suggestedAmount?: number): void => {
     setOwnerId(ownerIdInit ?? "");
@@ -1162,6 +1165,27 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
     owner: o,
     bal: computeOwnerBalance(o.id, items, sales, settlements),
   }));
+  const filteredSettlements = useMemo(() => {
+    const query = historyQuery.trim().toLowerCase();
+    const from = historyFrom ? new Date(`${historyFrom}T00:00:00`).getTime() : 0;
+    const to = historyTo ? new Date(`${historyTo}T23:59:59.999`).getTime() : Infinity;
+    return settlements.filter((settlement) => {
+      const owner = owners.find((entry) => entry.id === settlement.ownerId);
+      const paidAt = new Date(settlement.paidAt).getTime();
+      const searchable = [
+        settlement.id,
+        owner?.name,
+        owner?.phone,
+        settlement.paymentMethod,
+        settlement.notes,
+        settlement.userName,
+        settlement.periodFrom,
+        settlement.periodTo,
+      ].filter(Boolean).join(" ").toLowerCase();
+      return paidAt >= from && paidAt <= to && (!query || searchable.includes(query));
+    });
+  }, [settlements, owners, historyQuery, historyFrom, historyTo]);
+  const filteredPaidTotal = filteredSettlements.reduce((sum, entry) => sum + entry.amount, 0);
 
   return (
     <>
@@ -1225,35 +1249,60 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
         ))}
       </div>
 
-      {/* Recent settlements */}
-      <div className="overflow-x-auto rounded-2xl border border-border bg-card shadow-sm">
+      {/* Full payment history */}
+      <div className="rounded-2xl border border-border bg-card shadow-sm">
+        <div className="grid gap-2 border-b border-border p-3 md:grid-cols-[minmax(220px,1fr)_170px_170px_auto] md:items-center">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={historyQuery}
+              onChange={(event) => setHistoryQuery(event.target.value)}
+              placeholder="Search owner, phone, method, notes or payment ID"
+              className="pl-9"
+            />
+          </div>
+          <Input type="date" value={historyFrom} onChange={(event) => setHistoryFrom(event.target.value)} aria-label="Payments from date" />
+          <Input type="date" value={historyTo} onChange={(event) => setHistoryTo(event.target.value)} aria-label="Payments to date" />
+          <div className="whitespace-nowrap text-right text-sm font-semibold">
+            {filteredSettlements.length} payments · {formatCurrency(filteredPaidTotal)}
+          </div>
+        </div>
+        <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
             <tr>
+              <th className="px-3 py-2.5">Payment ID</th>
               <th className="px-3 py-2.5">Date</th>
-              <th className="px-3 py-2.5">Owner</th>
+              <th className="px-3 py-2.5">Owner / Contact</th>
               <th className="px-3 py-2.5 text-right">Amount</th>
               <th className="px-3 py-2.5">Method</th>
               <th className="px-3 py-2.5">Period</th>
+              <th className="px-3 py-2.5">Notes</th>
               <th className="px-3 py-2.5">By</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {settlements.length === 0 && (
+            {filteredSettlements.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
-                  No settlements recorded yet.
+                <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
+                  No matching owner payments.
                 </td>
               </tr>
             )}
-            {settlements.map((s) => {
+            {filteredSettlements.map((s) => {
               const owner = owners.find((o) => o.id === s.ownerId);
               return (
                 <tr key={s.id}>
+                  <td className="px-3 py-2.5 font-mono text-[11px]" title={s.id}>
+                    {s.id.slice(0, 8).toUpperCase()}
+                  </td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground">
                     {formatDateTime(s.paidAt)}
                   </td>
-                  <td className="px-3 py-2.5 font-medium">{owner?.name ?? "—"}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="font-medium">{owner?.name ?? "—"}</div>
+                    <div className="text-xs text-muted-foreground">{owner?.phone || "No phone"}</div>
+                  </td>
                   <td className="px-3 py-2.5 text-right tabular-nums font-semibold">
                     {formatCurrency(s.amount)}
                   </td>
@@ -1263,6 +1312,9 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
                       ? `${s.periodFrom ?? "…"} → ${s.periodTo ?? "…"}`
                       : "—"}
                   </td>
+                  <td className="max-w-xs whitespace-pre-wrap px-3 py-2.5 text-xs text-muted-foreground">
+                    {s.notes || "—"}
+                  </td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground">
                     {s.userName ?? "—"}
                   </td>
@@ -1271,6 +1323,7 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>

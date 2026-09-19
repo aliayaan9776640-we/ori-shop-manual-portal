@@ -81,6 +81,22 @@ const roundSaleQuantity = (value: number): number =>
 const hasEnoughStock = (available: number, requested: number): boolean =>
   available + 0.0005 >= requested;
 
+const formatPosStock = (stock: number, piecesPerCase: number, unit: string): string => {
+  const qty = Number(stock) || 0;
+  const ppc = Math.max(1, Number(piecesPerCase) || 1);
+  const clean = (value: number): string =>
+    Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/\.?0+$/, "");
+  const normalized = unit.trim().toLowerCase();
+  if (["kg", "kilogram", "gm", "g", "gram"].includes(normalized) || ppc <= 1) {
+    const label = ["kg", "kilogram", "gm"].includes(normalized) ? "kg" : normalized === "g" || normalized === "gram" ? "g" : "pc";
+    return `${clean(qty)} ${label}`;
+  }
+  const bulk = Math.floor(qty / ppc);
+  const loose = qty - bulk * ppc;
+  const bulkLabel = ["box", "case", "packet", "bottle", "tin"].includes(normalized) ? normalized : "case";
+  return `${clean(bulk)} ${bulkLabel} + ${clean(loose)} pc (total ${clean(qty)} pc)`;
+};
+
 export default function Sales() {
   const products = useStore((s) => s.products);
   const sales = useStore((s) => s.sales);
@@ -858,7 +874,7 @@ export default function Sales() {
                   <div className="flex-1 min-w-0">
                     <div className="truncate font-medium text-slate-900">{p.name}</div>
                     <div className="text-xs text-slate-500">
-                      {p.barcode} · {p.stockPieces} in stock
+                      {p.barcode} · {formatPosStock(p.stockPieces, p.piecesPerCase, p.unit)} in stock
                     </div>
                   </div>
                   <div className="text-sm font-semibold text-slate-900">
@@ -1028,7 +1044,7 @@ export default function Sales() {
                             </div>
                             <div className="flex w-full items-center justify-between text-[10px] text-slate-500">
                               <span>
-                                Stock: {p ? `${p.stockPieces} ${p.unit}` : "0"}
+                                Stock: {p ? formatPosStock(p.stockPieces, p.piecesPerCase, p.unit) : "0 pc"}
                               </span>
                               <span>{p && p.stockPieces > 0 ? "Available" : "Out of stock"}</span>
                             </div>
