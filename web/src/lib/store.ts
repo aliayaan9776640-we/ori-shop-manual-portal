@@ -62,6 +62,7 @@ export interface SalePersistenceResult {
 }
 
 const salePersistence = new Map<string, Promise<SalePersistenceResult>>();
+let productLiveSyncStarted = false;
 
 /** Wait until both the sale header and every sale item are safely stored. */
 export const waitForSalePersistence = (localSaleId: string): Promise<SalePersistenceResult> =>
@@ -914,6 +915,48 @@ export const useStore = create<AppState>()((set, get) => ({
         hydrated: true,
         bootstrapping: false,
       });
+
+      // Keep Inventory and every open POS session on the same authoritative
+      // products row. Realtime handles normal cross-device updates; focus and
+      // periodic refreshes cover projects where Realtime publication is off or
+      // a laptop temporarily loses its websocket connection.
+      if (!productLiveSyncStarted) {
+        productLiveSyncStarted = true;
+        const refreshProducts = async (): Promise<void> => {
+          const result = await fetchAllRows((from, to) =>
+            supabase.from("products").select("*").order("name").range(from, to)
+          );
+          if (result.error) {
+            logErr("products.live_refresh", result.error);
+            return;
+          }
+          set({ products: ((result.data as ProductRow[] | null) ?? []).map(rowToProduct) });
+        };
+        supabase
+          .channel("products-live-stock")
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "products" },
+            (payload) => {
+              if (payload.eventType === "DELETE") {
+                const deletedId = String((payload.old as { id?: string }).id ?? "");
+                if (deletedId) set({ products: get().products.filter((product) => product.id !== deletedId) });
+                return;
+              }
+              const updated = rowToProduct(payload.new as unknown as ProductRow);
+              const current = get().products;
+              const exists = current.some((product) => product.id === updated.id);
+              set({
+                products: exists
+                  ? current.map((product) => product.id === updated.id ? updated : product)
+                  : [...current, updated].sort((a, b) => a.name.localeCompare(b.name)),
+              });
+            },
+          )
+          .subscribe();
+        window.addEventListener("focus", () => { void refreshProducts(); });
+        window.setInterval(() => { void refreshProducts(); }, 60_000);
+      }
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error("[bootstrap]", e);
