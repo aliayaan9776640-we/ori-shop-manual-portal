@@ -414,7 +414,12 @@ function PaymentMixChart({ todaysSales }: { todaysSales: Sale[] }) {
           <BarChart
             data={(["cash", "card", "bank", "credit"] as const).map((m) => ({
               method: m.toUpperCase(),
-              amount: todaysSales.filter((s) => s.paymentMethod === m).reduce((s, x) => s + x.total, 0),
+              amount: todaysSales.reduce((sum, sale) => {
+                if (sale.paymentMethod === m) return sum + sale.total;
+                if (sale.paymentMethod === "split" && m === "cash") return sum + (sale.cashAmount ?? 0);
+                if (sale.paymentMethod === "split" && m === "bank") return sum + (sale.bankAmount ?? 0);
+                return sum;
+              }, 0),
             }))}
             margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
           >

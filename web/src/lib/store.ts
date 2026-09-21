@@ -328,6 +328,8 @@ interface AppState {
       bankTransferPhone?: string;
       /** Final POS amount due after GST, fees, and discount. */
       totalOverride?: number;
+      cashAmount?: number;
+      bankAmount?: number;
     }
   ) => Sale;
   /** Admin-only. Voids a sale, restores stock, reverses credit, logs the action. */
@@ -581,6 +583,8 @@ export const useStore = create<AppState>()((set, get) => ({
         change_given: number | string | null;
         bank_transfer_name?: string | null;
         bank_transfer_phone?: string | null;
+        cash_amount?: number | string | null;
+        bank_amount?: number | string | null;
         created_at: string;
         voided?: boolean | null;
         voided_at?: string | null;
@@ -672,6 +676,8 @@ export const useStore = create<AppState>()((set, get) => ({
           change: Number(s.change_given ?? 0) || 0,
           bankTransferName: s.bank_transfer_name ?? undefined,
           bankTransferPhone: s.bank_transfer_phone ?? undefined,
+          cashAmount: Number(s.cash_amount ?? 0) || undefined,
+          bankAmount: Number(s.bank_amount ?? 0) || undefined,
           voided: s.voided ?? undefined,
           voidedAt: s.voided_at ?? undefined,
           voidedBy: s.voided_by ?? undefined,
@@ -1789,9 +1795,11 @@ export const useStore = create<AppState>()((set, get) => ({
       drawerId,
       change: paymentMethod === "cash" && change && change > 0 ? +change.toFixed(2) : 0,
       bankTransferName:
-        paymentMethod === "bank" ? opts?.bankTransferName?.trim() || undefined : undefined,
+        paymentMethod === "bank" || paymentMethod === "split" ? opts?.bankTransferName?.trim() || undefined : undefined,
       bankTransferPhone:
-        paymentMethod === "bank" ? opts?.bankTransferPhone?.trim() || undefined : undefined,
+        paymentMethod === "bank" || paymentMethod === "split" ? opts?.bankTransferPhone?.trim() || undefined : undefined,
+      cashAmount: paymentMethod === "split" ? Math.max(0, Number(opts?.cashAmount) || 0) : undefined,
+      bankAmount: paymentMethod === "split" ? Math.max(0, Number(opts?.bankAmount) || 0) : undefined,
     };
     // Strict POS stock deduction.
     // Inventory is stored internally as TOTAL PIECES.
@@ -1883,6 +1891,8 @@ export const useStore = create<AppState>()((set, get) => ({
             change_given: sale.change ?? 0,
             bank_transfer_name: sale.bankTransferName ?? null,
             bank_transfer_phone: sale.bankTransferPhone ?? null,
+            cash_amount: sale.cashAmount ?? 0,
+            bank_amount: sale.bankAmount ?? 0,
           })
           .select()
           .single();

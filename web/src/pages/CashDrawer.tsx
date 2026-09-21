@@ -119,14 +119,12 @@ export default function CashDrawerPage() {
 
   const aggregates = useMemo(() => {
     const cash = drawerSales
-      .filter((s) => s.paymentMethod === "cash")
-      .reduce((a, b) => a + b.total, 0);
+      .reduce((sum, sale) => sum + (sale.paymentMethod === "cash" ? sale.total : sale.paymentMethod === "split" ? (sale.cashAmount ?? 0) : 0), 0);
     const card = drawerSales
       .filter((s) => s.paymentMethod === "card")
       .reduce((a, b) => a + b.total, 0);
     const bank = drawerSales
-      .filter((s) => s.paymentMethod === "bank")
-      .reduce((a, b) => a + b.total, 0);
+      .reduce((sum, sale) => sum + (sale.paymentMethod === "bank" ? sale.total : sale.paymentMethod === "split" ? (sale.bankAmount ?? 0) : 0), 0);
     const credit = drawerSales
       .filter((s) => s.paymentMethod === "credit")
       .reduce((a, b) => a + b.total, 0);

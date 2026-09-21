@@ -99,6 +99,7 @@ const formatPosStock = (stock: number, piecesPerCase: number, unit: string): str
 
 export default function Sales() {
   const products = useStore((s) => s.products);
+  const storeHydrated = useStore((s) => s.hydrated);
   const sales = useStore((s) => s.sales);
   const customers = useStore((s) => s.customers);
   const batches = useStore((s) => s.batches);
@@ -139,6 +140,7 @@ export default function Sales() {
   const [paidAmount, setPaidAmount] = useState<string>("");
   const [bankTransferName, setBankTransferName] = useState<string>("");
   const [bankTransferPhone, setBankTransferPhone] = useState<string>("");
+  const [splitCashAmount, setSplitCashAmount] = useState<string>("");
   const [holds, setHolds] = useState<PosHold[]>(() => readPosHolds());
   const [showHolds, setShowHolds] = useState(false);
   const [activeHoldId, setActiveHoldId] = useState<string | null>(null);
@@ -192,6 +194,35 @@ export default function Sales() {
     }
   }, [cart]);
 
+  // Product stock may change on another till or in Inventory while this POS
+  // remains open. Clamp held/draft cart lines to the authoritative balance so
+  // the cart can never continue displaying or selling more than Inventory.
+  useEffect(() => {
+    if (!storeHydrated) return;
+    setCart((current) => {
+      let changed = false;
+      const next = current.flatMap((line) => {
+        const product = products.find((entry) => entry.id === line.productId);
+        if (!product || product.stockPieces <= 0) {
+          changed = true;
+          return [];
+        }
+        if (line.pieces <= product.stockPieces + 0.0005) return [line];
+        changed = true;
+        const maxPieces = Math.max(0, product.stockPieces);
+        const multiplier = line.mode === "case" ? Math.max(1, line.piecesPerCase) : 1;
+        const unitQty = line.mode === "case"
+          ? Math.floor(maxPieces / multiplier)
+          : isWeightUnit(line.unit)
+            ? roundSaleQuantity(maxPieces)
+            : Math.floor(maxPieces);
+        const pieces = unitQty * multiplier;
+        return pieces > 0 ? [{ ...line, unitQty, pieces }] : [];
+      });
+      return changed ? next : current;
+    });
+  }, [products, storeHydrated]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return [] as typeof products;
@@ -201,6 +232,18 @@ export default function Sales() {
           p.name.toLowerCase().includes(q) ||
           p.barcode.toLowerCase().includes(q)
       )
+      .sort((a, b) => {
+        const score = (p: typeof a): number => {
+          const name = p.name.toLowerCase();
+          const barcode = p.barcode.toLowerCase();
+          if (barcode === q) return 0;
+          if (name === q) return 1;
+          if (name.startsWith(q)) return 2;
+          if (barcode.startsWith(q)) return 3;
+          return 4;
+        };
+        return score(a) - score(b) || a.name.localeCompare(b.name);
+      })
       .slice(0, 8);
   }, [products, search]);
 
@@ -285,7 +328,12 @@ export default function Sales() {
             ? roundSaleQuantity(c.unitQty + 0.001)
             : c.unitQty + 1;
           const mult = c.mode === "case" ? Math.max(1, c.piecesPerCase) : 1;
-          return { ...c, unitQty: nextUnit, pieces: nextUnit * mult };
+          const nextPieces = nextUnit * mult;
+          if (!hasEnoughStock(p.stockPieces, nextPieces)) {
+            toast.error(`Only ${formatPosStock(p.stockPieces, p.piecesPerCase, p.unit)} available`);
+            return c;
+          }
+          return { ...c, unitQty: nextUnit, pieces: nextPieces };
         });
       }
       const ppCase = isWeightUnit(p.unit) ? 1 : Math.max(1, p.piecesPerCase);
@@ -323,10 +371,19 @@ export default function Sales() {
             ? roundSaleQuantity(Math.max(0, unitQty))
             : Math.floor(Math.max(0, unitQty));
           const mult = c.mode === "case" ? Math.max(1, c.piecesPerCase) : 1;
+          const product = products.find((entry) => entry.id === productId);
+          const maxPieces = product?.stockPieces ?? 0;
+          const requestedPieces = safeUnitQty * mult;
+          const allowedPieces = Math.min(requestedPieces, maxPieces);
+          const allowedUnits = c.mode === "case"
+            ? Math.floor(allowedPieces / mult)
+            : isWeightUnit(c.unit)
+              ? roundSaleQuantity(allowedPieces)
+              : Math.floor(allowedPieces);
           return {
             ...c,
-            unitQty: safeUnitQty,
-            pieces: safeUnitQty * mult,
+            unitQty: allowedUnits,
+            pieces: allowedUnits * mult,
           };
         })
     );
@@ -427,10 +484,13 @@ export default function Sales() {
   const paymentKey = String(payment).toLowerCase().replace(/[\s_-]+/g, "");
   const isBankTransferSelected =
     paymentKey === "bank" ||
+    paymentKey === "split" ||
     paymentKey.includes("bank") ||
     paymentKey.includes("transfer");
 
   const paidNum = Number(paidAmount) || 0;
+  const splitCash = Math.max(0, Number(splitCashAmount) || 0);
+  const splitBank = Math.max(0, +(grandTotal - splitCash).toFixed(2));
   const changeAmt = +(paidNum - grandTotal).toFixed(2);
   const remainingAmt = changeAmt < 0 ? Math.abs(changeAmt) : 0;
 
@@ -446,6 +506,7 @@ export default function Sales() {
     setPaidAmount("");
     setBankTransferName("");
     setBankTransferPhone("");
+    setSplitCashAmount("");
     toast("Sale cancelled");
   };
 
@@ -468,6 +529,7 @@ export default function Sales() {
       paidAmount,
       bankTransferName,
       bankTransferPhone,
+      splitCashAmount,
     };
     const updated = [next, ...holds.filter((h) => h.id !== id)];
     writePosHolds(updated);
@@ -482,7 +544,9 @@ export default function Sales() {
     setPaidAmount("");
     setBankTransferName("");
     setBankTransferPhone("");
+    setSplitCashAmount("");
     toast.success("Payment held until it is processed");
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
   };
 
   const restoreHold = (hold: PosHold): void => {
@@ -496,9 +560,11 @@ export default function Sales() {
     setPaidAmount(hold.paidAmount);
     setBankTransferName(hold.bankTransferName);
     setBankTransferPhone(hold.bankTransferPhone);
+    setSplitCashAmount(hold.splitCashAmount ?? "");
     setActiveHoldId(hold.id);
     setShowHolds(false);
     toast.success("Held payment restored");
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
   };
 
   const removeHold = (id: string): void => {
@@ -595,6 +661,16 @@ export default function Sales() {
         return;
       }
     }
+    if (payment === "split") {
+      if (splitCash <= 0 || splitCash >= grandTotal) {
+        toast.error("Cash portion must be greater than 0 and less than the sale total");
+        return;
+      }
+      if (splitBank <= 0) {
+        toast.error("Bank transfer portion must be greater than 0");
+        return;
+      }
+    }
     if (isBankTransferSelected) {
       const name = bankTransferName.trim();
       const phone = bankTransferPhone.trim();
@@ -619,6 +695,9 @@ export default function Sales() {
           ? {
               bankTransferName: bankTransferName.trim(),
               bankTransferPhone: bankTransferPhone.trim(),
+              ...(payment === "split"
+                ? { cashAmount: splitCash, bankAmount: splitBank }
+                : {}),
             }
           : undefined
       );
@@ -638,7 +717,13 @@ export default function Sales() {
     sale = { ...sale, id: persisted.saleId };
     const cust = customers.find((c) => c.id === customerId);
     const effectivePaid =
-      payment === "credit" ? 0 : paidNum > 0 ? paidNum : grandTotal;
+      payment === "credit"
+        ? 0
+        : payment === "split"
+          ? grandTotal
+          : paidNum > 0
+            ? paidNum
+            : grandTotal;
     const effectiveChange =
       payment === "credit" ? 0 : +(effectivePaid - grandTotal).toFixed(2);
     // Track change given to drawer running total (cash payments only)
@@ -671,6 +756,8 @@ export default function Sales() {
       paid: effectivePaid,
       change: effectiveChange,
       payment,
+      cashAmount: payment === "split" ? splitCash : undefined,
+      bankAmount: payment === "split" ? splitBank : undefined,
       shopName: settings.shopName,
       footer: settings.receiptFooter,
     };
@@ -750,6 +837,7 @@ export default function Sales() {
     setPaidAmount("");
     setBankTransferName("");
     setBankTransferPhone("");
+    setSplitCashAmount("");
     setSavingSale(false);
     if (printAfter) {
       setTimeout(() => {
@@ -1393,11 +1481,12 @@ export default function Sales() {
                     card: CreditCard,
                     bank: Building2,
                     credit: HandCoins,
+                    split: HandCoins,
                   };
-                  const VALID = ["cash", "card", "bank", "credit"] as const;
+                  const VALID = ["cash", "card", "bank", "credit", "split"] as const;
                   type V = (typeof VALID)[number];
                   // Use admin-managed labels when available; fall back to defaults.
-                  const list: { k: V; l: string; i: typeof Banknote }[] =
+                  const configured: { k: V; l: string; i: typeof Banknote }[] =
                     paymentDropdown.length > 0
                       ? paymentDropdown
                           .filter((d) => (VALID as readonly string[]).includes(d.value))
@@ -1411,7 +1500,11 @@ export default function Sales() {
                           { k: "card", l: "Card", i: CreditCard },
                           { k: "bank", l: "Bank", i: Building2 },
                           { k: "credit", l: "Credit", i: HandCoins },
+                          { k: "split", l: "Cash + Bank", i: HandCoins },
                         ];
+                  const list = configured.some((entry) => entry.k === "split")
+                    ? configured
+                    : [...configured, { k: "split" as const, l: "Cash + Bank", i: HandCoins }];
                   return list.map((m) => (
                     <button
                       key={m.k}
@@ -1422,10 +1515,11 @@ export default function Sales() {
                             ? "bank"
                             : m.k;
                         setPayment(normalizedPayment as PaymentMethod);
-                        if (normalizedPayment !== "bank") {
+                        if (normalizedPayment !== "bank" && normalizedPayment !== "split") {
                           setBankTransferName("");
                           setBankTransferPhone("");
                         }
+                        if (normalizedPayment !== "split") setSplitCashAmount("");
                       }}
                       className={`flex items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-xs font-semibold transition ${
                         payment === m.k
@@ -1479,6 +1573,37 @@ export default function Sales() {
                 );
               })()}
             </div>
+
+            {payment === "split" && (
+              <div className="rounded-lg border-2 border-emerald-400 bg-emerald-50 p-3 shadow-sm">
+                <div className="mb-2 text-[11px] font-extrabold uppercase tracking-wider text-emerald-800">
+                  Cash + Bank Split Payment
+                </div>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Cash amount
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={splitCashAmount}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (/^\d*\.?\d{0,2}$/.test(value)) setSplitCashAmount(value);
+                    }}
+                    placeholder="0.00"
+                    className="mt-1 h-11 w-full rounded-md border border-emerald-300 bg-white px-3 text-right text-base font-bold outline-none focus:border-primary focus:ring-2 focus:ring-primary/30"
+                  />
+                </label>
+                <div className="mt-2 flex items-center justify-between rounded-md bg-white px-3 py-2 text-sm">
+                  <span className="font-medium text-slate-600">Bank transfer amount</span>
+                  <span className="font-extrabold text-sky-700">{formatCurrency(splitBank)}</span>
+                </div>
+                {splitCash >= grandTotal && grandTotal > 0 && (
+                  <div className="mt-2 text-xs font-bold text-rose-700">
+                    Cash must be less than the total so the bank portion remains greater than zero.
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Bank transfer details - REQUIRED only when Bank is selected */}
             {isBankTransferSelected && (

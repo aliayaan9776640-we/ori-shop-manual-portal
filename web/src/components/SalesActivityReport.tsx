@@ -136,9 +136,9 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   // Payments
   const sumBy = (arr: typeof live, m: string): number =>
     arr.filter((s) => s.paymentMethod === m).reduce((a, b) => a + b.total, 0);
-  const cashIn = sumBy(live, "cash");
+  const cashIn = sumBy(live, "cash") + live.reduce((sum, sale) => sum + (sale.paymentMethod === "split" ? (sale.cashAmount ?? 0) : 0), 0);
   const cardTotal = sumBy(live, "card");
-  const bankTotal = sumBy(live, "bank");
+  const bankTotal = sumBy(live, "bank") + live.reduce((sum, sale) => sum + (sale.paymentMethod === "split" ? (sale.bankAmount ?? 0) : 0), 0);
   const creditTotal = sumBy(live, "credit");
   const drawersInRange = drawers.filter(
     (d) => inRange(d.openedAt) || (!!d.closedAt && inRange(d.closedAt))
@@ -154,7 +154,7 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
         (s.paymentMethod ?? "cash").trim().toLowerCase() === "cash"
     )
     .reduce((sum, s) => sum + s.amount, 0);
-  const reversedCashOut = sumBy(voided, "cash");
+  const reversedCashOut = sumBy(voided, "cash") + voided.reduce((sum, sale) => sum + (sale.paymentMethod === "split" ? (sale.cashAmount ?? 0) : 0), 0);
   // New cash settlements are included in drawer cashUsed. Math.max also
   // makes older settlements visible without counting newer ones twice.
   const cashOut = reversedCashOut + Math.max(drawerCashOut, consignmentCashOut);
@@ -194,11 +194,11 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
   ];
 
   // Bank transfer listing
-  const bankSales = live.filter((s) => s.paymentMethod === "bank");
+  const bankSales = live.filter((s) => s.paymentMethod === "bank" || s.paymentMethod === "split");
   const bankTransfers = bankSales.map((s) => {
     const c = s.customerId ? customers.find((x) => x.id === s.customerId) : null;
     return {
-      amount: s.total,
+      amount: s.paymentMethod === "split" ? (s.bankAmount ?? 0) : s.total,
       customer: c?.name ?? "Walk-in",
       phone: c?.phone ?? "",
       reference: s.id.slice(-8).toUpperCase(),

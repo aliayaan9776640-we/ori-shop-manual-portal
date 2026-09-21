@@ -76,7 +76,7 @@ export interface SaleItem {
   gstApplicable?: boolean;
 }
 
-export type PaymentMethod = "cash" | "card" | "bank" | "credit";
+export type PaymentMethod = "cash" | "card" | "bank" | "credit" | "split";
 
 export interface Sale {
   id: string;
@@ -95,6 +95,10 @@ export interface Sale {
   bankTransferName?: string;
   /** Bank transfer payer phone/reference number captured at POS when paymentMethod = "bank". */
   bankTransferPhone?: string;
+  /** Cash portion of a cash + bank split payment. */
+  cashAmount?: number;
+  /** Bank portion of a cash + bank split payment. */
+  bankAmount?: number;
   /** Admin-only protection fields */
   voided?: boolean;
   voidedAt?: string;

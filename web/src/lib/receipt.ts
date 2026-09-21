@@ -30,6 +30,8 @@ export interface ReceiptData {
   paid?: number;
   change?: number;
   payment: string;
+  cashAmount?: number;
+  bankAmount?: number;
   shopName: string;
   footer: string;
 }
@@ -105,6 +107,8 @@ const buildReceiptHtml = (d: ReceiptData): string => {
   <div class="grand"><span style="float:left">TOTAL</span><span style="float:right">${formatCurrency(d.total)}</span><div style="clear:both"></div></div>
   <div class="pay">
     <div class="row"><span>Payment method</span><span><strong>${escape(d.payment.toUpperCase())}</strong></span></div>
+    ${d.payment === "split" && typeof d.cashAmount === "number" ? `<div class="row"><span>Cash portion</span><span>${formatCurrency(d.cashAmount)}</span></div>` : ""}
+    ${d.payment === "split" && typeof d.bankAmount === "number" ? `<div class="row"><span>Bank portion</span><span>${formatCurrency(d.bankAmount)}</span></div>` : ""}
     ${typeof d.paid === "number" ? `<div class="row"><span>Amount paid</span><span>${formatCurrency(d.paid)}</span></div>` : ""}
     ${
       typeof d.change === "number"

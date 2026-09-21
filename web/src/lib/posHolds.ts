@@ -13,6 +13,7 @@ export interface PosHold {
   paidAmount: string;
   bankTransferName: string;
   bankTransferPhone: string;
+  splitCashAmount?: string;
 }
 
 export const readPosHolds = (): PosHold[] => {

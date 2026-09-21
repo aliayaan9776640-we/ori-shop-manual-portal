@@ -148,6 +148,8 @@ export default function BillHistory() {
       paid: s.paymentMethod === "credit" ? 0 : s.total,
       change: 0,
       payment: s.paymentMethod,
+      cashAmount: s.cashAmount,
+      bankAmount: s.bankAmount,
       shopName: settings.shopName,
       footer: settings.receiptFooter,
     };
@@ -259,6 +261,7 @@ export default function BillHistory() {
           <option value="card">Card</option>
           <option value="bank">Bank</option>
           <option value="credit">Credit</option>
+          <option value="split">Cash + Bank</option>
         </select>
         {isAdmin && (
           <select
@@ -451,6 +454,8 @@ export default function BillHistory() {
                                 ? "bg-blue-100 text-blue-700"
                                 : s.paymentMethod === "bank"
                                   ? "bg-violet-100 text-violet-700"
+                                  : s.paymentMethod === "split"
+                                    ? "bg-cyan-100 text-cyan-800"
                                   : "bg-amber-100 text-amber-700"
                           }`}
                         >
@@ -638,6 +643,7 @@ export default function BillHistory() {
                 <option value="card">Card</option>
                 <option value="bank">Bank</option>
                 <option value="credit">Credit</option>
+                <option value="split">Cash + Bank</option>
               </select>
             </div>
             <div>

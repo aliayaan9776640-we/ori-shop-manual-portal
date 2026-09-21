@@ -26,6 +26,7 @@ import {
   Eye,
   Send,
   Link as LinkIcon,
+  Search,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { toast } from "sonner";
@@ -126,18 +127,27 @@ export default function Customers() {
   const [payNote, setPayNote] = useState("");
   const [approveTarget, setApproveTarget] = useState<CreditCustomer | null>(null);
   const [approveLimit, setApproveLimit] = useState(0);
+  const [customerSearch, setCustomerSearch] = useState("");
+
+  const matchesCustomerSearch = (customer: CreditCustomer): boolean => {
+    const query = customerSearch.trim().toLowerCase();
+    if (!query) return true;
+    return `${customer.name} ${customer.phone ?? ""} ${customer.address ?? ""}`
+      .toLowerCase()
+      .includes(query);
+  };
 
   const pending = useMemo(
-    () => customers.filter((c) => c.approvalStatus === "pending"),
-    [customers]
+    () => customers.filter((c) => c.approvalStatus === "pending" && matchesCustomerSearch(c)),
+    [customers, customerSearch]
   );
   const approved = useMemo(
-    () => customers.filter((c) => c.approvalStatus === "approved"),
-    [customers]
+    () => customers.filter((c) => c.approvalStatus === "approved" && matchesCustomerSearch(c)),
+    [customers, customerSearch]
   );
   const rejected = useMemo(
-    () => customers.filter((c) => c.approvalStatus === "rejected"),
-    [customers]
+    () => customers.filter((c) => c.approvalStatus === "rejected" && matchesCustomerSearch(c)),
+    [customers, customerSearch]
   );
 
   const totalOutstanding = useMemo(
@@ -249,6 +259,16 @@ export default function Customers() {
           value={formatCurrency(totalOutstanding)}
         />
         <StatCard label="Recent Tx" value={tx.length} />
+      </div>
+
+      <div className="relative mb-6">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={customerSearch}
+          onChange={(event) => setCustomerSearch(event.target.value)}
+          placeholder="Search credit customer by name, phone or address..."
+          className="h-11 w-full rounded-xl border border-input bg-background pl-10 pr-4 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+        />
       </div>
 
       {/* Pending approval (admin focus) */}
