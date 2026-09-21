@@ -213,13 +213,10 @@ export default function Inventory() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return products.filter((p) => {
-      if (
-        q &&
-        !p.name.toLowerCase().includes(q) &&
-        !p.barcode.toLowerCase().includes(q)
-      )
-        return false;
+    const matches = products.filter((p) => {
+      const name = p.name.toLowerCase();
+      const barcode = p.barcode.toLowerCase();
+      if (q && !name.includes(q) && !barcode.includes(q)) return false;
       if (
         filter === "low" &&
         !(p.stockPieces > 0 && p.stockPieces <= p.reorderLevel)
@@ -228,6 +225,23 @@ export default function Inventory() {
       if (filter === "out" && p.stockPieces !== 0) return false;
       return true;
     });
+
+    if (!q) return matches;
+
+    const relevance = (p: Product): number => {
+      const name = p.name.toLowerCase();
+      const barcode = p.barcode.toLowerCase();
+      if (name === q) return 0;
+      if (barcode === q) return 1;
+      if (name.startsWith(q)) return 2;
+      if (barcode.startsWith(q)) return 3;
+      return 4;
+    };
+
+    return matches.sort(
+      (a, b) =>
+        relevance(a) - relevance(b) || a.name.localeCompare(b.name),
+    );
   }, [products, search, filter]);
 
   const openNew = (): void => {
