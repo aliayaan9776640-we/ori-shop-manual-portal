@@ -2030,18 +2030,9 @@ export const useStore = create<AppState>()((set, get) => ({
                 logErr("consignment_sales.auto.insert", csErr);
                 continue;
               }
-              const newSold = ci.qtySold + take;
-              await supabase
-                .from("consignment_items")
-                .update({ qty_sold: newSold })
-                .eq("id", ci.id);
-              useConsignment.setState({
-                items: useConsignment
-                  .getState()
-                  .items.map((x) =>
-                    x.id === ci.id ? { ...x, qtySold: newSold } : x
-                  ),
-              });
+              // Database trigger synchronizes qty_sold from the authoritative
+              // consignment_sales rows. This also works for cashier accounts,
+              // which deliberately cannot edit intake rows directly.
             }
           }
           // Refresh consignment sales list so the Consignment tab shows them.
@@ -2210,22 +2201,8 @@ export const useStore = create<AppState>()((set, get) => ({
           if (csSelErr) {
             logErr("consignment_sales.void.select", csSelErr);
           } else if (csRows && csRows.length > 0) {
-            // Decrement qty_sold on each linked consignment_item, then delete
-            // the consignment_sales rows so payable totals reverse cleanly.
-            const byItem = new Map<string, number>();
-            for (const r of csRows as { id: string; item_id: string; qty: number }[]) {
-              byItem.set(r.item_id, (byItem.get(r.item_id) ?? 0) + Number(r.qty));
-            }
-            for (const [itemId, qtyBack] of byItem.entries()) {
-              const ci = useConsignment.getState().items.find((x) => x.id === itemId);
-              if (!ci) continue;
-              const newSold = Math.max(0, ci.qtySold - qtyBack);
-              const { error: upErr } = await supabase
-                .from("consignment_items")
-                .update({ qty_sold: newSold })
-                .eq("id", itemId);
-              if (upErr) logErr("consignment_items.void.update", upErr);
-            }
+            // Deleting the ledger rows reverses payable totals. The database
+            // trigger recalculates qty_sold for the affected intake rows.
             const { error: delErr } = await supabase
               .from("consignment_sales")
               .delete()

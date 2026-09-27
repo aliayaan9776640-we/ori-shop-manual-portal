@@ -767,33 +767,34 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
     if (!item) return null;
     const balance = item.qtyReceived - item.qtySold - item.qtyReturned;
     if (qty > balance) return null;
-    const me = useStore.getState().currentUserId;
-    const { data, error } = await supabase
-      .from("consignment_returns")
-      .insert({
-        item_id: itemId,
-        owner_id: item.ownerId,
-        qty,
-        notes: notes ?? null,
-        user_id: me,
-      })
-      .select()
-      .single();
-    if (error) {
-      logErr("returns.insert", error);
+    if (!item.inventoryProductId) {
+      console.error("[consignment.return] item is not linked to inventory");
       return null;
     }
+    const { data, error } = await supabase.rpc("record_consignment_return", {
+      p_item_id: itemId,
+      p_qty: qty,
+      p_notes: notes ?? null,
+    });
+    if (error) {
+      logErr("returns.atomic", error);
+      return null;
+    }
+    const returnRow = (Array.isArray(data) ? data[0] : data) as ReturnRow | null;
+    if (!returnRow) return null;
     const newReturned = item.qtyReturned + qty;
-    const { error: uErr } = await supabase
-      .from("consignment_items")
-      .update({ qty_returned: newReturned })
-      .eq("id", itemId);
-    logErr("items.qtyReturned", uErr);
-    const ret = rowToReturn(data as ReturnRow);
+    const ret = rowToReturn(returnRow);
     set({
       returns: [ret, ...get().returns],
       items: get().items.map((x) =>
         x.id === itemId ? { ...x, qtyReturned: newReturned } : x
+      ),
+    });
+    useStore.setState({
+      products: useStore.getState().products.map((product) =>
+        product.id === item.inventoryProductId
+          ? { ...product, stockPieces: Math.max(0, product.stockPieces - qty) }
+          : product,
       ),
     });
     useStore.getState().log(
