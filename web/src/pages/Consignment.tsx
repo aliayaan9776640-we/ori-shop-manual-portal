@@ -68,7 +68,6 @@ export default function ConsignmentPage() {
   const canSettle = isAdmin;
 
   const load = useConsignment((s) => s.load);
-  const loaded = useConsignment((s) => s.loaded);
   const missing = useConsignment((s) => s.missing);
   const owners = useConsignment((s) => s.owners);
   const items = useConsignment((s) => s.items);
@@ -77,8 +76,28 @@ export default function ConsignmentPage() {
   const settlements = useConsignment((s) => s.settlements);
 
   useEffect(() => {
-    if (!loaded) void load();
-  }, [load, loaded]);
+    // Consignment sales may be created by another browser or by the Electron
+    // POS. Always refresh when this page opens and keep it synchronized while
+    // it remains open so Stock, Sales, and Pay Owners never depend on a manual
+    // browser refresh.
+    const refresh = (): void => {
+      void load();
+    };
+    const refreshWhenVisible = (): void => {
+      if (document.visibilityState === "visible") refresh();
+    };
+
+    refresh();
+    const intervalId = window.setInterval(refresh, 10_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [load]);
 
   // KPIs
   const today = useMemo(() => new Date(), []);
