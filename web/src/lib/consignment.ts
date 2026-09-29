@@ -40,6 +40,7 @@ export interface ConsignmentItem {
 
 export interface ConsignmentSale {
   id: string;
+  saleId?: string;
   itemId: string;
   ownerId: string;
   qty: number;
@@ -296,11 +297,13 @@ interface SaleRow {
   commission: number;
   customer_id: string | null;
   user_id: string | null;
+  sale_id: string | null;
   notes: string | null;
   created_at: string;
 }
 const rowToSale = (r: SaleRow, userName?: string): ConsignmentSale => ({
   id: r.id,
+  saleId: r.sale_id ?? undefined,
   itemId: r.item_id,
   ownerId: r.owner_id,
   qty: Number(r.qty),

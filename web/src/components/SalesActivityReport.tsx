@@ -47,6 +47,26 @@ interface ReportModel {
   bankTransferCount: number;
   cashDrawer: { label: string; value: number; bold?: boolean }[];
   consignment: { label: string; value: number; bold?: boolean }[];
+  salesComposition: { label: string; value: number; bold?: boolean }[];
+  consignmentDaily: {
+    date: string;
+    transactions: number;
+    qty: number;
+    sales: number;
+    payable: number;
+    commission: number;
+  }[];
+  consignmentSales: {
+    date: string;
+    reference: string;
+    item: string;
+    owner: string;
+    qty: number;
+    unit: string;
+    sales: number;
+    payable: number;
+    commission: number;
+  }[];
 }
 
 const fmtRangeUS = (from: string, to: string): string => {
@@ -310,6 +330,54 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
     { label: "Unpaid settlement balance", value: Math.max(0, lifetimePayable - lifetimePaid), bold: true },
   ];
 
+  const regularSalesTotal = Math.max(0, totalSales - consSalesTotal);
+  const salesComposition = [
+    { label: "Regular sales (excluding consignment)", value: regularSalesTotal },
+    { label: "Consignment sales", value: consSalesTotal },
+    { label: "Full sales total (including consignment)", value: totalSales, bold: true },
+  ];
+
+  const consignmentSales = consInRange
+    .map((sale) => {
+      const item = cons.items.find((candidate) => candidate.id === sale.itemId);
+      const owner = cons.owners.find((candidate) => candidate.id === sale.ownerId);
+      const amounts = adjustedAmounts(sale);
+      return {
+        date: sale.createdAt,
+        reference: (sale.saleId ?? sale.id).slice(-8).toUpperCase(),
+        item: item?.name ?? "Unknown item",
+        owner: owner?.name ?? "Unknown owner",
+        qty: sale.qty,
+        unit: item?.unitType ?? "piece",
+        sales: sale.totalAmount,
+        payable: amounts.payable,
+        commission: amounts.commission,
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const dailyMap = new Map<string, ReportModel["consignmentDaily"][number]>();
+  for (const sale of consignmentSales) {
+    const date = new Date(sale.date).toLocaleDateString("en-CA");
+    const row = dailyMap.get(date) ?? {
+      date,
+      transactions: 0,
+      qty: 0,
+      sales: 0,
+      payable: 0,
+      commission: 0,
+    };
+    row.transactions += 1;
+    row.qty += sale.qty;
+    row.sales += sale.sales;
+    row.payable += sale.payable;
+    row.commission += sale.commission;
+    dailyMap.set(date, row);
+  }
+  const consignmentDaily = [...dailyMap.values()].sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+
   return {
     generatedAt: new Date().toLocaleString("en-US"),
     periodLabel: periodLabel(period),
@@ -326,6 +394,9 @@ export function buildSalesActivity(period: ActivityPeriod, from: string, to: str
     bankTransferCount: bankTransfers.length,
     cashDrawer,
     consignment,
+    salesComposition,
+    consignmentDaily,
+    consignmentSales,
   };
 }
 
@@ -400,6 +471,20 @@ const renderHTML = (m: ReportModel): string => {
       </table>`
     : `<div class="empty">No bank transfers in this period.</div>`;
 
+  const consignmentDailyList = m.consignmentDaily.length
+    ? `<table class="t">
+        <thead><tr><th class="l">Date</th><th class="r">Sales rows</th><th class="r">Qty</th><th class="r">Sales</th><th class="r">Owner payable</th><th class="r">Commission</th></tr></thead>
+        <tbody>${m.consignmentDaily.map((d) => `<tr><td class="l">${d.date}</td><td class="r">${d.transactions}</td><td class="r">${d.qty.toFixed(3).replace(/\.?0+$/, "")}</td><td class="r">${formatCurrency(d.sales)}</td><td class="r">${formatCurrency(d.payable)}</td><td class="r">${formatCurrency(d.commission)}</td></tr>`).join("")}</tbody>
+      </table>`
+    : `<div class="empty">No consignment sales in this period.</div>`;
+
+  const consignmentSaleList = m.consignmentSales.length
+    ? `<table class="t">
+        <thead><tr><th class="l">Date / time</th><th class="l">Reference</th><th class="l">Item</th><th class="l">Owner</th><th class="r">Qty</th><th class="r">Sales</th><th class="r">Owner payable</th><th class="r">Commission</th></tr></thead>
+        <tbody>${m.consignmentSales.map((s) => `<tr><td class="l">${new Date(s.date).toLocaleString("en-US")}</td><td class="l">${s.reference}</td><td class="l">${s.item}</td><td class="l">${s.owner}</td><td class="r">${s.qty.toFixed(3).replace(/\.?0+$/, "")} ${s.unit}</td><td class="r">${formatCurrency(s.sales)}</td><td class="r">${formatCurrency(s.payable)}</td><td class="r">${formatCurrency(s.commission)}</td></tr>`).join("")}</tbody>
+      </table>`
+    : `<div class="empty">No consignment sale details in this period.</div>`;
+
   return `
     <div class="header">
       <img src="${LOGO_URL}" alt="logo"/>
@@ -410,6 +495,7 @@ const renderHTML = (m: ReportModel): string => {
       </div>
     </div>
     ${sect("Sales Activity", activityTbl)}
+    ${sect("Regular + Consignment Sales", kvTbl(m.salesComposition))}
     ${sect("Sales Adjustments", kvTbl(m.adjustments))}
     ${sect("Discount Breakout", discountTbl)}
     ${sect("Receipt Counts", countTbl(m.receiptCounts))}
@@ -417,6 +503,8 @@ const renderHTML = (m: ReportModel): string => {
     ${sect("Bank Transfer Listing", bankList)}
     ${sect("Cash Drawer Summary", kvTbl(m.cashDrawer))}
     ${sect("Consignment Section", kvTbl(m.consignment))}
+    ${sect("Daily Consignment Sales", consignmentDailyList)}
+    ${sect("Full Consignment Sale Details", consignmentSaleList)}
   `;
 };
 
@@ -467,6 +555,10 @@ const xlsDocument = (m: ReportModel): string => {
   m.activity.forEach((a) => rows.push(row([a.label, a.sales, a.returns, a.net], a.bold)));
 
   rows.push(row([""]));
+  rows.push(header("Regular + Consignment Sales"));
+  m.salesComposition.forEach((r) => rows.push(row([r.label, r.value], r.bold)));
+
+  rows.push(row([""]));
   rows.push(header("Sales Adjustments"));
   m.adjustments.forEach((a) => rows.push(row([a.label, a.value])));
 
@@ -498,6 +590,20 @@ const xlsDocument = (m: ReportModel): string => {
   rows.push(header("Consignment Section"));
   m.consignment.forEach((r) => rows.push(row([r.label, r.value], r.bold)));
 
+  rows.push(row([""]));
+  rows.push(header("Daily Consignment Sales"));
+  rows.push(row(["Date", "Sales rows", "Qty", "Sales", "Owner payable", "Commission"], true));
+  m.consignmentDaily.forEach((d) =>
+    rows.push(row([d.date, d.transactions, d.qty, d.sales, d.payable, d.commission]))
+  );
+
+  rows.push(row([""]));
+  rows.push(header("Full Consignment Sale Details"));
+  rows.push(row(["Date / Time", "Reference", "Item", "Owner", "Qty", "Unit", "Sales", "Owner payable", "Commission"], true));
+  m.consignmentSales.forEach((s) =>
+    rows.push(row([new Date(s.date).toLocaleString("en-US"), s.reference, s.item, s.owner, s.qty, s.unit, s.sales, s.payable, s.commission]))
+  );
+
   return `<!doctype html><html><head><meta charset="utf-8"/></head><body><table border="1">${rows.join("")}</table></body></html>`;
 };
 
@@ -514,7 +620,21 @@ export default function SalesActivityReport({ period, from, to }: Props) {
   const loadConsignment = useConsignment((s) => s.load);
 
   useEffect(() => {
-    void loadConsignment();
+    const refresh = (): void => {
+      void loadConsignment();
+    };
+    const refreshWhenVisible = (): void => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    refresh();
+    const intervalId = window.setInterval(refresh, 10_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   }, [loadConsignment]);
 
   const model = useMemo(
@@ -617,6 +737,10 @@ export default function SalesActivityReport({ period, from, to }: Props) {
         </table>
       </Section>
 
+      <Section title="Regular + Consignment Sales">
+        {renderKv(model.salesComposition)}
+      </Section>
+
       <div className="grid gap-4 md:grid-cols-2">
         <Section title="Sales Adjustments">{renderKv(model.adjustments)}</Section>
         <Section title="Receipt Counts">
@@ -703,6 +827,72 @@ export default function SalesActivityReport({ period, from, to }: Props) {
         <Section title="Cash Drawer Summary">{renderKv(model.cashDrawer)}</Section>
         <Section title="Consignment Section">{renderKv(model.consignment)}</Section>
       </div>
+
+      <Section title="Daily Consignment Sales">
+        {model.consignmentDaily.length === 0 ? (
+          <div className="px-3 py-4 text-sm text-muted-foreground">No consignment sales in this period.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-secondary/60 text-xs uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 text-left">Date</th>
+                <th className="px-3 py-2 text-right">Sales rows</th>
+                <th className="px-3 py-2 text-right">Qty</th>
+                <th className="px-3 py-2 text-right">Sales</th>
+                <th className="px-3 py-2 text-right">Owner payable</th>
+                <th className="px-3 py-2 text-right">Commission</th>
+              </tr>
+            </thead>
+            <tbody>
+              {model.consignmentDaily.map((d) => (
+                <tr key={d.date} className="border-t border-border">
+                  <td className="px-3 py-2 font-medium">{d.date}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{d.transactions}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{d.qty.toFixed(3).replace(/\.?0+$/, "")}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(d.sales)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(d.payable)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(d.commission)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      <Section title="Full Consignment Sale Details">
+        {model.consignmentSales.length === 0 ? (
+          <div className="px-3 py-4 text-sm text-muted-foreground">No consignment sale details in this period.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-secondary/60 text-xs uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 text-left">Date / time</th>
+                <th className="px-3 py-2 text-left">Reference</th>
+                <th className="px-3 py-2 text-left">Item</th>
+                <th className="px-3 py-2 text-left">Owner</th>
+                <th className="px-3 py-2 text-right">Qty</th>
+                <th className="px-3 py-2 text-right">Sales</th>
+                <th className="px-3 py-2 text-right">Owner payable</th>
+                <th className="px-3 py-2 text-right">Commission</th>
+              </tr>
+            </thead>
+            <tbody>
+              {model.consignmentSales.map((s, index) => (
+                <tr key={`${s.reference}-${s.item}-${index}`} className="border-t border-border">
+                  <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{new Date(s.date).toLocaleString("en-US")}</td>
+                  <td className="px-3 py-2 font-mono text-xs">{s.reference}</td>
+                  <td className="px-3 py-2 font-medium">{s.item}</td>
+                  <td className="px-3 py-2">{s.owner}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{s.qty.toFixed(3).replace(/\.?0+$/, "")} {s.unit}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(s.sales)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(s.payable)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(s.commission)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
     </div>
   );
 }
