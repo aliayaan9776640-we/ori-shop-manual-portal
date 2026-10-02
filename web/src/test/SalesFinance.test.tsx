@@ -26,8 +26,8 @@ describe("Sales Finance", () => {
     expect(mock.rpc).not.toHaveBeenCalled();
   });
   it("posts a deposit using one atomic request and keeps its ID on retry", async () => {
-    mock.rpc.mockImplementation(async name => name === "finance_snapshot" ? { data, error: null } : { error: { message: "Connection interrupted" } });
-    mount(); await screen.findByText("Record a money movement");
+    mock.rpc.mockImplementation(async name => ["finance_snapshot", "finance_dashboard"].includes(name) ? { data, error: null } : { error: { message: "Connection interrupted" } });
+    mount(); fireEvent.click(await screen.findByRole("button", { name: /Deposit On Hand Cash to Account/ })); await screen.findByText("Record a money movement");
     fireEvent.change(screen.getByLabelText("Bank account"), { target: { value: "bank" } });
     fireEvent.change(screen.getByLabelText("Amount (MVR)"), { target: { value: "500" } });
     fireEvent.change(screen.getByLabelText("Reason / purchase details / deposit reference"), { target: { value: "Deposit slip 123" } });

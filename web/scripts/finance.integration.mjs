@@ -93,5 +93,26 @@ assert.equal((await snapshot()).accounts.find(a=>a.kind==='bank').auto_receipts,
 await post('bank_opening',100,null,'Second account');
 assert.equal((await snapshot()).accounts.filter(a=>a.auto_receipts).length,1,'Only one automatic receiving bank');
 await db.exec('rollback;');
+await post('cash_receipt',100);
+await db.exec(`insert into cash_drawers(id,opening_cash) values ('excess-day',50)`);
+await db.exec(`update cash_drawers set status='closed',cash_sales=50,cash_used=20,change_given=10,counted_cash=85,closed_at=now() where id='excess-day'`);
+assert.equal((await balances()).cash,135,'Actual count includes excess exactly once; neither cash-out nor change is subtracted again');
+await db.exec(`insert into cash_drawers(id,opening_cash) values ('short-day',20)`);
+await db.exec(`update cash_drawers set status='closed',cash_sales=30,cash_used=10,counted_cash=37,closed_at=now() where id='short-day'`);
+assert.equal((await balances()).cash,152,'Actual count includes shortage exactly once');
+await db.exec(`alter table profiles add column full_name text;
+create table sales(id text,created_at timestamptz,total numeric,payment_method text,cash_amount numeric,bank_amount numeric,voided boolean);
+insert into sales values
+('cash','2026-10-01T20:00:00Z',100,'cash',null,null,false),
+('split','2026-10-02T10:00:00Z',200,'split',50,150,false),
+('card','2026-10-02T11:00:00Z',80,'card',null,null,false),
+('credit','2026-10-02T12:00:00Z',30,'credit',null,null,false),
+('void','2026-10-02T12:00:00Z',999,'card',null,null,true),
+('nextday','2026-10-02T19:00:00Z',90,'cash',null,null,false);`);
+await db.exec(await readFile(new URL('../supabase/migrations/0045_finance_dashboard.sql',import.meta.url),'utf8'));
+const dashboard=(await db.query("select finance_dashboard('2026-10-02') data")).rows[0].data;
+assert.deepEqual(dashboard.days,[{day:'2026-10-02',total:410,cash:150,bank:150,card:80,credit:30}], 'Daily sales honor Maldives midnight, split payments and void exclusions');
+await db.exec(`set test.admin='false'`);
+await assert.rejects(db.query("select finance_dashboard('2026-10-02')"),/Admin access required/);
 await db.close();
 console.log('PASS: setup, history cutoff, drawer cash, approval deduplication, float carry-forward, deposits, expenses, settlement fees, retries, overdrafts, immutability, validation and admin-only database access.');

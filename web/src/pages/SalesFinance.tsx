@@ -1,5 +1,6 @@
+import SalesFinanceOverview, { maldivesDay, closingCash, type FinanceSummary } from "@/components/SalesFinanceOverview";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { useCurrentUser } from "@/lib/store";
 import { formatCurrency } from "@/lib/format";
@@ -20,6 +21,9 @@ export default function SalesFinance() {
   const user = useCurrentUser();
   const [data, setData] = useState<Snapshot | null>(null);
   const [error, setError] = useState("");
+  const [day, setDay] = useState(() => maldivesDay(new Date()));
+  const [summary, setSummary] = useState<FinanceSummary>({ days: [], deposited: 0, used: 0, recorders: {} });
+  const [showForm, setShowForm] = useState(false);
   const [offset, setOffset] = useState(0);
   const [kind, setKind] = useState("deposit");
   const [amount, setAmount] = useState("");
@@ -36,11 +40,16 @@ export default function SalesFinance() {
     const current = ++generation.current;
     if (user?.role !== "admin") return;
     if (!isSupabaseConfigured) { setError("A database connection is required for cash and account records."); return; }
-    const result = await supabase.rpc("finance_snapshot", { p_offset: offset });
+    const [result, stats] = await Promise.all([
+      supabase.rpc("finance_snapshot", { p_offset: offset }),
+      supabase.rpc("finance_dashboard", { p_day: day }),
+    ]);
     if (generation.current !== current) return;
     if (result.error) { setError(`Unable to load balances. ${result.error.message}`); return; }
+    if (stats.error) { setError(`Unable to load sales summary. ${stats.error.message}`); return; }
+    setSummary({ days: stats.data?.days ?? [], deposited: Number(stats.data?.deposited ?? 0), used: Number(stats.data?.used ?? 0), recorders: stats.data?.recorders ?? {} });
     setData(result.data as Snapshot); setError(""); setUpdated(new Date().toISOString());
-  }, [user?.role, offset]);
+  }, [user?.role, offset, day]);
   useEffect(() => {
     void refresh();
     if (user?.role !== "admin") return;
@@ -60,10 +69,8 @@ export default function SalesFinance() {
   const action = cash ? kind : "initialize";
   const settlement = action === "card_settlement" || action === "transfer_settlement";
   const needsBank = ["deposit", "bank_expense", "card_settlement", "transfer_settlement"].includes(action);
-  const pendingCard = data?.closings.filter(c => !c.card_settled).reduce((s,c) => s + Number(c.card_sales), 0) ?? 0;
-  const pendingTransfer = data?.closings.filter(c => !c.transfer_settled).reduce((s,c) => s + Number(c.transfer_sales), 0) ?? 0;
   const name = (id: string | null) => data?.accounts.find(a => a.id === id)?.name ?? "—";
-  const reset = (next: string) => { setKind(next); setAmount(""); setFee("0"); setReason(""); setDrawer(""); };
+  const reset = (next: string) => { setShowForm(true); setKind(next); setAmount(""); setFee("0"); setReason(""); setDrawer(""); };
   const chooseSettlement = (c: Closing, type: "card_settlement" | "transfer_settlement") => {
     reset(type); setDrawer(c.drawer_id); setAmount(String(type === "card_settlement" ? c.card_sales : c.transfer_sales));
     document.getElementById("finance-entry")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -80,25 +87,20 @@ export default function SalesFinance() {
       const result = await supabase.rpc("finance_post", { ...payload, p_request: request.current.id });
       if (result.error) throw result.error;
       request.current = undefined; reset("deposit"); setOffset(0);
-      await refresh(); toast.success("Transaction recorded and balances updated");
+      await refresh(); setShowForm(false); toast.success("Transaction recorded and balances updated");
     } catch (e) { toast.error(e instanceof Error ? e.message : (e as { message?: string }).message ?? "Could not save. Retry the same entry safely."); }
     finally { saving.current = false; setBusy(false); }
   };
-  return <div className="space-y-6">
-    <PageHeader title="Sales Management · Cash & Accounts" description="Admin-only cash custody, bank balances and money movements. All amounts are MVR." actions={<Button variant="outline" onClick={() => void refresh()}>Refresh</Button>} />
-    <p className="text-sm text-muted-foreground">Records money movements you have completed; this page does not send money through a bank. <Link className="underline" to="/cash-drawer">Open Cash Drawer</Link></p>
+  return <div className="space-y-4 text-slate-900">
+    <PageHeader title="Sales Management · Cash & Accounts" description="Monitor daily sales, cash on hand, bank balances and money movements. All amounts are in MVR." actions={<div className="flex gap-2"><input aria-label="Dashboard date" type="date" value={day} onChange={e => { if(e.target.value) setDay(e.target.value); }} className="rounded-lg border bg-white px-3 text-sm"/><Button variant="outline" onClick={() => void refresh()}>Refresh</Button></div>} />
+
     {error && <div role="alert" className="rounded-lg border border-destructive p-4 text-destructive">{error} Balances are unavailable until the connection is restored. Please contact your administrator if this continues.</div>}
     {!data && !error && <p>Loading balances…</p>}
     {data && !error && <>
-      {cash ? <>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{[
-          ["Cash on hand", cash.balance, "Available outside open drawers"], ["Opening float in drawers", data.open_float, "Returned with counted cash at close"],
-          ["Bank account balances", banks.reduce((s,a) => s+Number(a.balance),0), "Includes automatic card and transfer credits"], ["Card awaiting settlement", pendingCard, "Not included in bank balance yet"], ["Transfers awaiting allocation", pendingTransfer, "Confirm the receiving account"]
-        ].map(([title,value,help]) => <section key={String(title)} className="rounded-xl border bg-card p-4"><h2 className="text-sm text-muted-foreground">{title}</h2><p className="my-2 text-xl font-bold">{money(Number(value))}</p><p className="text-xs text-muted-foreground">{help}</p></section>)}</div>
-        <p className="text-xs text-muted-foreground">Updated {date(updated)}. Drawer sales become available when the drawer closes. Deductions are already reflected in counted cash. Opening float is moved, never counted as new income.</p>
-        <div className="flex flex-wrap gap-3">{banks.map(a => <div key={a.id} className="rounded-lg border p-3"><span className="text-sm">{a.name}</span><p className="font-semibold">{money(a.balance)}</p></div>)}</div>
-      </> : <section className="rounded-lg border bg-muted/30 p-4"><h2 className="font-semibold">Start with a reconciled cash balance</h2><p className="text-sm">Close every drawer first. Enter all cash currently held, including float to be used next time. Historical drawer totals are not added again. Future drawer openings and closings update this balance automatically. Then add your bank account with its current balance. The first bank account automatically receives future card and transfer totals when a drawer closes.</p></section>}
-      {cash && <section className="rounded-lg border bg-muted/30 p-4 space-y-2">
+      <SalesFinanceOverview accounts={data.accounts} summary={summary} day={day} openFloat={data.open_float} onAction={reset}/>
+      <p className="text-xs text-slate-500">Updated {updated ? date(updated) : "—"}. Sales and charts follow the selected Maldives date; account cards show current balances. Card and transfers post on closing. Recording a deposit here does not send money through a bank.</p>
+      {!cash && <section className="rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 className="font-semibold">Set up your opening balances once</h2><p className="mt-1 text-sm">Close every drawer first, then enter the cash you actually hold, including float for the next drawer. Historical drawer totals are not added again. Sales charts already show your recorded sales. Add each bank with its actual current balance to start automatic tracking.</p></section>}
+      {cash && <details className="rounded-xl border bg-white p-4"><summary className="cursor-pointer text-sm font-semibold">Automatic posting settings · {receivingBank?.name ?? "Select a receiving bank"}</summary><section className="mt-3 space-y-2">
         <h2 className="font-semibold">Automatic bank updates at drawer closing</h2>
         <p className="text-sm">{receivingBank ? `Card and transfer payments automatically increase ${receivingBank.name} when each drawer closes. Counted cash increases cash on hand after drawer deductions.` : "Add a bank account below, then select it here. Until an account is selected, card and transfer receipts remain pending for manual allocation."}</p>
         {!!banks.length && <label className="block text-sm">Receiving bank account<select className={field} disabled={busy} value={receivingBank?.id ?? ""} onChange={async e => {
@@ -113,9 +115,9 @@ export default function SalesFinance() {
           finally { saving.current = false; setBusy(false); }
         }}><option value="" disabled>Select receiving bank</option>{banks.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>}
         <p className="text-xs text-muted-foreground">Bank spending deducts from the selected account. A cash deposit deducts the same amount from cash on hand and adds it to the selected bank. A full cash deposit leaves cash on hand at zero. Changing the receiving bank affects future closings only.</p>
-      </section>}
-      <form id="finance-entry" onSubmit={save} className="rounded-xl border bg-card p-5">
-        <h2 className="mb-4 font-semibold">{cash ? "Record a money movement" : "Initialize cash tracking"}</h2>
+      </section></details>}
+      {(showForm || !cash) && <form id="finance-entry" onSubmit={save} className="rounded-xl border bg-card p-5">
+        <div className="mb-4 flex justify-between"><h2 className="font-semibold">{cash ? "Record a money movement" : "Initialize cash tracking"}</h2>{cash && <button type="button" onClick={()=>setShowForm(false)} className="text-sm underline">Close</button>}</div>
         <fieldset disabled={busy} className="grid gap-4 md:grid-cols-2">
           {cash && <label className="space-y-1 text-sm">Action<select className={field} value={kind} onChange={e => reset(e.target.value)}>{["deposit","bank_expense","cash_expense","cash_receipt","bank_opening",...(settlement ? [kind] : [])].map(k => <option key={k} value={k}>{labels[k]}</option>)}</select></label>}
           {needsBank && <label className="space-y-1 text-sm">Bank account<select required className={field} value={account} onChange={e => setAccount(e.target.value)}><option value="">Select an account</option>{banks.map(a => <option key={a.id} value={a.id}>{a.name} — {money(a.balance)}</option>)}</select></label>}
@@ -126,11 +128,13 @@ export default function SalesFinance() {
           {action === "deposit" && <p className="text-sm md:col-span-2">A full deposit clears available cash on hand; a partial deposit leaves the remaining cash. Both balances update together.</p>}
           <Button type="submit" className="md:col-span-2" disabled={busy || (needsBank && !banks.length)}>{busy ? "Saving…" : "Record transaction"}</Button>
         </fieldset>
-      </form>
-      <section><h2 className="mb-3 text-lg font-semibold">Daily drawer closings</h2><p className="mb-3 text-sm text-muted-foreground">Since tracking started. Dates use Maldives time. Card and transfer totals are shown separately and automatically credited to your receiving bank at closing. Record bank fees as bank expenses with a reason.</p>
-        <div className="overflow-x-auto rounded-lg border"><table className="w-full text-sm"><thead className="bg-muted"><tr>{["Closed / cashier","Opening","Cash sales","Cash used","Change","Counted cash","Difference","Card","Transfer"].map(h => <th key={h} className="whitespace-nowrap p-3 text-left">{h}</th>)}</tr></thead><tbody>{data.closings.map(c => <tr key={c.drawer_id} className="border-t"><td className="p-3">{date(c.closed_at)}<div className="text-xs text-muted-foreground">{c.cashier_name}</div></td>{[c.opening_cash,c.cash_sales,c.deductions,c.change_given,c.counted_cash,c.difference].map((n,i) => <td key={i} className="whitespace-nowrap p-3">{money(n)}</td>)}<td className="p-3">{money(c.card_sales)}{Number(c.card_sales)>0 && (c.card_settled ? <p className="text-xs">Settled</p> : <Button disabled={busy} size="sm" variant="outline" onClick={() => chooseSettlement(c,"card_settlement")}>Record settlement</Button>)}</td><td className="p-3">{money(c.transfer_sales)}{Number(c.transfer_sales)>0 && (c.transfer_settled ? <p className="text-xs">Allocated</p> : <Button disabled={busy} size="sm" variant="outline" onClick={() => chooseSettlement(c,"transfer_settlement")}>Record receipt</Button>)}</td></tr>)}</tbody></table>{!data.closings.length && <p className="p-4 text-muted-foreground">No drawers closed since tracking started.</p>}</div>
+      </form>}
+      <div className="grid gap-4 2xl:grid-cols-2">
+      <section className="min-w-0 rounded-xl border bg-white p-4"><h2 className="mb-3 text-sm font-bold">Daily Cash Drawer Closing Summary</h2><p className="mb-3 text-sm text-muted-foreground">Expected cash = opening float + net cash sales − cash-outs. Change is already part of the customer payment, so it is not deducted again from net sales. Excess / shortage = actual counted cash − expected cash. Only actual counted cash is added to cash on hand.</p>
+        <div className="max-h-80 overflow-auto rounded-lg border"><table className="w-full text-sm"><thead className="bg-muted"><tr>{["Closed / cashier","Opening float","Cash sales","Cash out","Expected cash","Added to cash","Excess / shortage","Card to bank","Transfer to bank"].map(h => <th key={h} className="whitespace-nowrap p-3 text-left">{h}</th>)}</tr></thead><tbody>{data.closings.filter(c => maldivesDay(c.closed_at) === day).map(c => <tr key={c.drawer_id} className="border-t"><td className="p-3">{date(c.closed_at)}<div className="text-xs text-muted-foreground">{c.cashier_name}</div></td>{[c.opening_cash,c.cash_sales,c.deductions,closingCash(c).expected,c.counted_cash,closingCash(c).difference].map((n,i) => <td key={i} className="whitespace-nowrap p-3">{money(n)}</td>)}<td className="p-3">{money(c.card_sales)}{Number(c.card_sales)>0 && (c.card_settled ? <p className="text-xs">Settled</p> : <Button disabled={busy} size="sm" variant="outline" onClick={() => chooseSettlement(c,"card_settlement")}>Record settlement</Button>)}</td><td className="p-3">{money(c.transfer_sales)}{Number(c.transfer_sales)>0 && (c.transfer_settled ? <p className="text-xs">Allocated</p> : <Button disabled={busy} size="sm" variant="outline" onClick={() => chooseSettlement(c,"transfer_settlement")}>Record receipt</Button>)}</td></tr>)}</tbody></table>{!data.closings.some(c => maldivesDay(c.closed_at) === day) && <p className="p-4 text-muted-foreground">No tracked drawers closed on this date.</p>}</div>
       </section>
-      <section><h2 className="mb-3 text-lg font-semibold">Transaction history</h2><div className="overflow-x-auto rounded-lg border"><table className="w-full text-sm"><thead className="bg-muted"><tr>{["Date","Movement","Amount","Fee","From","To","Reason / reference","Recorded by"].map(h => <th key={h} className="p-3 text-left">{h}</th>)}</tr></thead><tbody>{data.entries.map(e => <tr className="border-t" key={e.id}><td className="p-3">{date(e.created_at)}</td><td className="p-3">{labels[e.kind] ?? e.kind}</td><td className="whitespace-nowrap p-3">{money(e.amount)}</td><td className="p-3">{money(e.fee)}</td><td className="p-3">{name(e.source_id)}</td><td className="p-3">{name(e.destination_id)}</td><td className="min-w-48 p-3">{e.reason}{e.drawer_id && <p className="text-xs text-muted-foreground">{e.drawer_id}</p>}</td><td className="max-w-36 break-all p-3 text-xs">{e.created_by ?? "System"}</td></tr>)}</tbody></table></div><div className="mt-3 flex items-center gap-3"><Button variant="outline" disabled={offset===0} onClick={() => setOffset(Math.max(0,offset-100))}>Previous</Button><span className="text-sm">{data.entry_count ? offset+1 : 0}–{Math.min(offset+100,data.entry_count)} of {data.entry_count}</span><Button variant="outline" disabled={offset+100>=data.entry_count} onClick={() => setOffset(offset+100)}>Next</Button></div></section>
+      <section id="finance-history" className="min-w-0 rounded-xl border bg-white p-4"><h2 className="mb-3 text-sm font-bold">Recent Transactions</h2><div className="max-h-80 overflow-auto rounded-lg border"><table className="w-full text-sm"><thead className="bg-muted"><tr>{["Date","Movement","Amount","Fee","From","To","Reason / reference","Recorded by"].map(h => <th key={h} className="p-3 text-left">{h}</th>)}</tr></thead><tbody>{data.entries.map(e => <tr className="border-t" key={e.id}><td className="p-3">{date(e.created_at)}</td><td className="p-3">{labels[e.kind] ?? e.kind}</td><td className="whitespace-nowrap p-3">{money(e.amount)}</td><td className="p-3">{money(e.fee)}</td><td className="p-3">{name(e.source_id)}</td><td className="p-3">{name(e.destination_id)}</td><td className="min-w-48 p-3">{e.reason}{e.drawer_id && <p className="text-xs text-muted-foreground">{e.drawer_id}</p>}</td><td className="max-w-36 break-all p-3 text-xs">{e.created_by ? summary.recorders[e.created_by] ?? "Staff" : "System"}</td></tr>)}</tbody></table></div><div className="mt-3 flex items-center gap-3"><Button variant="outline" disabled={offset===0} onClick={() => setOffset(Math.max(0,offset-100))}>Previous</Button><span className="text-sm">{data.entry_count ? offset+1 : 0}–{Math.min(offset+100,data.entry_count)} of {data.entry_count}</span><Button variant="outline" disabled={offset+100>=data.entry_count} onClick={() => setOffset(offset+100)}>Next</Button></div></section>
+      </div>
     </>}
   </div>;
 }
