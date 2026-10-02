@@ -1,10 +1,10 @@
-import PaymentSuccess from "@/pages/PaymentSuccess";
-import PaymentFailed from "@/pages/PaymentFailed";
+const PaymentSuccess = lazy(() => import("@/pages/PaymentSuccess"));
+const PaymentFailed = lazy(() => import("@/pages/PaymentFailed"));
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import OrderAlertSystem from "@/components/OrderAlertSystem";
+const OrderAlertSystem = lazy(() => import("@/components/OrderAlertSystem"));
 import {
   BrowserRouter,
   Routes,
@@ -15,50 +15,50 @@ import {
 import { AnimatePresence } from "framer-motion";
 import { useStore, useCurrentUser } from "@/lib/store";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-import Layout from "@/components/Layout";
+const Layout = lazy(() => import("@/components/Layout"));
 import RoleGate from "@/components/RoleGate";
-import Login from "./pages/Login";
-import StoreLogin from "./pages/StoreLogin";
-import CustomerLogin from "./pages/CustomerLogin";
-import Dashboard from "./pages/Dashboard";
-import Inventory from "./pages/Inventory";
-import Sales from "./pages/Sales";
-import SalesFinance from "./pages/SalesFinance";
-import Suppliers from "./pages/Suppliers";
-import Orders from "./pages/Orders";
-import PurchaseOrders from "./pages/PurchaseOrders";
-import Damaged from "./pages/Damaged";
-import Customers from "./pages/Customers";
-import CreditApprovals from "./pages/CreditApprovals";
-import Approvals from "./pages/Approvals";
-import CustomerDetail from "./pages/CustomerDetail";
-import CreditSends from "./pages/CreditSends";
-import PublicBill from "./pages/PublicBill";
-import Reports from "./pages/Reports";
-import Users from "./pages/Users";
-import Settings from "./pages/Settings";
-import Quotations from "./pages/Quotations";
-import BillHistory from "./pages/BillHistory";
-import CashDrawerPage from "./pages/CashDrawer";
-import BackupPage from "./pages/Backup";
-import AuditLogs from "./pages/AuditLogs";
-import ConsignmentPage from "./pages/Consignment";
-import GstPurchaseReport from "./pages/GstPurchaseReport";
-import Store from "@/pages/Store";
-import OnlineOrders from "./pages/OnlineOrders";
-import OnlineShop from "./pages/OnlineShop";
-import PreOrders from "./pages/PreOrders";
-import PreorderAdmin from "./pages/PreorderAdmin";
-import CustomerProfileDashboard from "@/components/CustomerProfileDashboard";
-import CustomerApprovals from "./pages/CustomerApprovals";
-import NotFound from "./pages/NotFound";
-import ResetPassword from "./pages/ResetPassword";
-import PrivacyPolicy from "./pages/PrivacyPolicy";
-import DeleteAccount from "./pages/DeleteAccount";
-import { useEffect, type ReactNode } from "react";
+const Login = lazy(() => import("./pages/Login"));
+const StoreLogin = lazy(() => import("./pages/StoreLogin"));
+const CustomerLogin = lazy(() => import("./pages/CustomerLogin"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Inventory = lazy(() => import("./pages/Inventory"));
+const Sales = lazy(() => import("./pages/Sales"));
+const SalesFinance = lazy(() => import("./pages/SalesFinance"));
+const Suppliers = lazy(() => import("./pages/Suppliers"));
+const Orders = lazy(() => import("./pages/Orders"));
+const PurchaseOrders = lazy(() => import("./pages/PurchaseOrders"));
+const Damaged = lazy(() => import("./pages/Damaged"));
+const Customers = lazy(() => import("./pages/Customers"));
+const CreditApprovals = lazy(() => import("./pages/CreditApprovals"));
+const Approvals = lazy(() => import("./pages/Approvals"));
+const CustomerDetail = lazy(() => import("./pages/CustomerDetail"));
+const CreditSends = lazy(() => import("./pages/CreditSends"));
+const PublicBill = lazy(() => import("./pages/PublicBill"));
+const Reports = lazy(() => import("./pages/Reports"));
+const Users = lazy(() => import("./pages/Users"));
+const Settings = lazy(() => import("./pages/Settings"));
+const Quotations = lazy(() => import("./pages/Quotations"));
+const BillHistory = lazy(() => import("./pages/BillHistory"));
+const CashDrawerPage = lazy(() => import("./pages/CashDrawer"));
+const BackupPage = lazy(() => import("./pages/Backup"));
+const AuditLogs = lazy(() => import("./pages/AuditLogs"));
+const ConsignmentPage = lazy(() => import("./pages/Consignment"));
+const GstPurchaseReport = lazy(() => import("./pages/GstPurchaseReport"));
+const Store = lazy(() => import("@/pages/Store"));
+const OnlineOrders = lazy(() => import("./pages/OnlineOrders"));
+const OnlineShop = lazy(() => import("./pages/OnlineShop"));
+const PreOrders = lazy(() => import("./pages/PreOrders"));
+const PreorderAdmin = lazy(() => import("./pages/PreorderAdmin"));
+const CustomerProfileDashboard = lazy(() => import("@/components/CustomerProfileDashboard"));
+const CustomerApprovals = lazy(() => import("./pages/CustomerApprovals"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword"));
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy"));
+const DeleteAccount = lazy(() => import("./pages/DeleteAccount"));
+import { lazy, Suspense, useEffect, type ReactNode } from "react";
 import Logo from "@/components/Logo";
-import { runDailyAutoBackupIfDue } from "@/lib/backup";
-import { startDesktopAutoBackup } from "@/lib/desktopBackup";
+const runDailyAutoBackupIfDue = () => { void import("@/lib/backup").then(m => m.runDailyAutoBackupIfDue()); };
+
 import { useSettings } from "@/lib/settings";
 import { useDropdowns } from "@/lib/dropdowns";
 import { useRoleSettings } from "@/lib/roleSettings";
@@ -144,10 +144,17 @@ function RequireAuth({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+const isCustomerRoute = (path: string) => ['/store','/store-login','/customer-login','/profile','/customer-profile','/pre-orders','/privacy-policy','/delete-account','/payment-success','/payment-failed'].includes(path) || path.startsWith('/bill/');
 function AuthBootstrap() {
+  const location = useLocation();
+  const customerRoute = isCustomerRoute(location.pathname);
   const bootstrap = useStore((s) => s.bootstrap);
 
   useEffect(() => {
+    if (customerRoute) {
+      void useSettings.getState().loadRemote().catch(() => {});
+      return;
+    }
     void bootstrap();
 
     if (isSupabaseConfigured) {
@@ -175,7 +182,11 @@ function AuthBootstrap() {
     }
 
     let backupInterval: number | null = null;
-    const stopDesktopBackup = startDesktopAutoBackup();
+    let disposed = false;
+    let stopDesktopBackup = () => {};
+    if (window.oriDesktop?.isDesktop) void import("@/lib/desktopBackup").then(m => {
+      if (!disposed) stopDesktopBackup = m.startDesktopAutoBackup();
+    });
     const onFocus = (): void => {
       runDailyAutoBackupIfDue();
     };
@@ -251,7 +262,7 @@ function AuthBootstrap() {
               .getState()
               .users.find((u) => u.id === useStore.getState().currentUserId);
 
-            void useStore.getState().bootstrap();
+            void useStore.getState().refreshCredit();
 
             const newRow = payload.new as
               | { approval_status?: string; name?: string }
@@ -294,6 +305,13 @@ function AuthBootstrap() {
         .subscribe();
     }
 
+    const creditChannel = !customerRoute && isSupabaseConfigured ? supabase.channel("credit-ledger-feed")
+      .on("postgres_changes", { event: "*", schema: "public", table: "credit_transactions" }, () => void useStore.getState().refreshCredit())
+      .subscribe(status => { if (status === "SUBSCRIBED") void useStore.getState().refreshCredit(); }) : null;
+    const refreshCredit = () => { if (document.visibilityState !== "hidden") void useStore.getState().refreshCredit(); };
+    const creditTimer = window.setInterval(refreshCredit, 15000);
+    window.addEventListener("focus", refreshCredit);
+    document.addEventListener("visibilitychange", refreshCredit);
     let productsChannel: ReturnType<typeof supabase.channel> | null = null;
 
     if (isSupabaseConfigured) {
@@ -303,7 +321,7 @@ function AuthBootstrap() {
           "postgres_changes",
           { event: "*", schema: "public", table: "products" },
           (payload) => {
-            void useStore.getState().bootstrap();
+            // Product rows are synchronized by products-live-stock.
 
             const me = useStore
               .getState()
@@ -483,7 +501,7 @@ function AuthBootstrap() {
 
     return () => {
       if (backupInterval !== null) window.clearInterval(backupInterval);
-      stopDesktopBackup();
+      disposed = true; stopDesktopBackup();
       if (settingsRefetchInterval !== null) {
         window.clearInterval(settingsRefetchInterval);
       }
@@ -499,6 +517,10 @@ function AuthBootstrap() {
         stash.__oriSettingsFocusHandler = undefined;
       }
 
+      window.clearInterval(creditTimer);
+      window.removeEventListener("focus", refreshCredit);
+      document.removeEventListener("visibilitychange", refreshCredit);
+      if (creditChannel) void supabase.removeChannel(creditChannel);
       sub?.data.subscription.unsubscribe();
 
       if (approvalsChannel) void supabase.removeChannel(approvalsChannel);
@@ -508,7 +530,7 @@ function AuthBootstrap() {
       if (productsChannel) void supabase.removeChannel(productsChannel);
       if (preorderChannel) void supabase.removeChannel(preorderChannel);
     };
-  }, [bootstrap]);
+  }, [bootstrap, customerRoute]);
 
   return null;
 }
@@ -516,7 +538,7 @@ function AnimatedRoutes() {
   const location = useLocation();
 
   return (
-    <AnimatePresence mode="wait">
+    <Suspense fallback={<div role="status" className="p-6 text-center">Loading page…</div>}><AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         <Route path="/login" element={<Login />} />
         <Route path="/store-login" element={<StoreLogin />} />
@@ -577,8 +599,12 @@ function AnimatedRoutes() {
 
         <Route path="*" element={<NotFound />} />
       </Routes>
-    </AnimatePresence>
+    </AnimatePresence></Suspense>
   );
+}
+function StaffAlerts() {
+  const location = useLocation();
+  return isCustomerRoute(location.pathname) ? null : <Suspense fallback={null}><OrderAlertSystem /></Suspense>;
 }
 const App = () => {
   if (!isSupabaseConfigured) {
@@ -606,7 +632,7 @@ const App = () => {
         <BrowserRouter>
           <AuthBootstrap />
 
-          <OrderAlertSystem />
+          <StaffAlerts />
 
           <AnimatedRoutes />
         </BrowserRouter>

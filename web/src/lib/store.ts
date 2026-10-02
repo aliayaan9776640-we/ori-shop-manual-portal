@@ -284,6 +284,7 @@ interface AppState {
 
   // hydration
   bootstrap: () => Promise<void>;
+  refreshCredit: () => Promise<void>;
 
   // auth actions (async with Supabase)
   login: (
@@ -448,9 +449,34 @@ const initial = {
   logs: [] as ActivityLog[],
 };
 
+let creditRefreshing = false;
+let creditRefreshQueued = false;
 export const useStore = create<AppState>()((set, get) => ({
   ...initial,
 
+  refreshCredit: async () => {
+    if (!isSupabaseConfigured || !get().currentUserId) return;
+    if (creditRefreshing) { creditRefreshQueued = true; return; }
+    creditRefreshing = true;
+    const uid = get().currentUserId;
+    try {
+      const [customers, transactions] = await Promise.all([
+        fetchAllRows((from,to) => supabase.from("customers").select("*").order("id").range(from,to)),
+        fetchAllRows((from,to) => supabase.from("credit_transactions").select("*").order("created_at", { ascending: false }).order("id").range(from,to)),
+      ]);
+      if (get().currentUserId !== uid) return;
+      if (customers.error || transactions.error) { logErr("credit.refresh", customers.error || transactions.error); return; }
+      set({ customers: (customers.data as CustomerRow[]).map(rowToCustomer), creditTx: transactions.data.map(value => {
+        const r = value as { id: string; customer_id: string; created_at: string; type: string; amount: number; sale_id: string | null; note: string | null; user_id: string | null };
+        return { id:r.id, customerId:r.customer_id, date:r.created_at, type:r.type === "payment" ? "payment" as const : "sale" as const, amount:Number(r.amount), saleId:r.sale_id ?? undefined, note:r.note ?? undefined, userId:r.user_id ?? undefined, userName:get().users.find(u=>u.id===r.user_id)?.fullName };
+      }) });
+    } catch (error) {
+      console.warn("[credit.refresh]", error);
+    } finally {
+      creditRefreshing = false;
+      if (creditRefreshQueued) { creditRefreshQueued = false; void get().refreshCredit(); }
+    }
+  },
   /* ------------------------- bootstrap ----------------------------- */
   bootstrap: async () => {
     if (window.location.pathname.includes("/reset-password")) {
@@ -471,6 +497,7 @@ export const useStore = create<AppState>()((set, get) => ({
       const { data: sessionData } = await supabase.auth.getSession();
       const uid = sessionData.session?.user.id ?? null;
 
+      if (!uid) { set({ currentUserId: null, hydrated: true, bootstrapping: false }); return; }
       // Load profiles (needed for both auth + Users page)
       const { data: profiles, error: pErr } = await supabase
         .from("profiles")

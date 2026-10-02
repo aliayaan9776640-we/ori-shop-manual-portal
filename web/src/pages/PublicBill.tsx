@@ -1,3 +1,4 @@
+import { useCreditRefresh } from "@/lib/useCreditRefresh";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
@@ -40,6 +41,7 @@ interface PublicAccount {
 
 export default function PublicBill(): JSX.Element {
   const { token } = useParams<{ token: string }>();
+  const creditRevision = useCreditRefresh(!!token);
   const [account, setAccount] = useState<PublicAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +70,7 @@ export default function PublicBill(): JSX.Element {
         } else if (!data) {
           setError("This link is no longer valid.");
         } else {
+          setError(null);
           setAccount(data as unknown as PublicAccount);
         }
       } catch (e) {
@@ -81,7 +84,7 @@ export default function PublicBill(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, creditRevision]);
 
   const totals = useMemo(() => {
     if (!account) return { credit: 0, paid: 0 };

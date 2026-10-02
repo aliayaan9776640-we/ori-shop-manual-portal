@@ -1,3 +1,4 @@
+import { useCheckoutCredit } from "@/lib/useCheckoutCredit";
 import ContactUs from "@/pages/ContactUs";
 import PageTransition from "@/components/PageTransition";
 import CustomerProfileDashboard from "@/components/CustomerProfileDashboard";
@@ -1751,6 +1752,7 @@ function ProductGrid({
               {p.photo_url ? (
                 <img
                   src={p.photo_url}
+                  loading="lazy" decoding="async"
                   alt={p.name}
                   className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
                 />
@@ -2207,9 +2209,12 @@ function CheckoutDialog({
   const [boatDepartureDate, setBoatDepartureDate] = useState("");
   const [boatDepartureTime, setBoatDepartureTime] = useState("");
 
-  const [creditAvailable, setCreditAvailable] = useState(0);
-  const [creditAllowed, setCreditAllowed] = useState(false);
-  const [creditMessage, setCreditMessage] = useState("Credit available only for approved credit customers");
+  const liveCredit = useCheckoutCredit(open, customer?.name, customer?.phone);
+  const creditAvailable = Math.max(0, Number(liveCredit.credit?.credit_limit ?? 0) - Number(liveCredit.credit?.balance ?? 0));
+  const creditAllowed = !!liveCredit.credit && !liveCredit.error && creditAvailable >= cartTotal && cartTotal > 0;
+  const creditMessage = liveCredit.checking ? "Checking available credit…" : liveCredit.error ?? (!liveCredit.credit
+    ? "Credit is available only for approved matching credit customers."
+    : `Available credit: MVR ${creditAvailable.toFixed(2)}${creditAvailable < cartTotal ? " — insufficient for this order" : ""}`);
 
   const [bank, setBank] = useState({
     bankName: "BML / Bank Transfer",
@@ -2252,37 +2257,7 @@ function CheckoutDialog({
       });
   }, [open]);
 
-  useEffect(() => {
-    if (!open || !customer?.name || !customer?.phone) return;
-    setCreditAllowed(false);
-    setCreditAvailable(0);
-    void customerSupabase
-      .rpc("match_approved_credit_customer", {
-        p_name: customer.name,
-        p_phone: customer.phone,
-      })
-      .then(({ data, error }) => {
-        if (error) {
-          setCreditMessage("Credit checking not configured. Ask admin to run the latest SQL.");
-          return;
-        }
-        const row = Array.isArray(data) ? data[0] : null;
-        if (!row?.id) {
-          setCreditMessage("Credit not available: your name and phone do not match an approved credit customer.");
-          return;
-        }
-        const limit = Number(row.credit_limit || 0);
-        const balance = Number(row.balance || 0);
-        const available = Math.max(0, limit - balance);
-        setCreditAvailable(available);
-        setCreditAllowed(available >= cartTotal && cartTotal > 0);
-        setCreditMessage(
-          available >= cartTotal
-            ? `Available credit: MVR ${available.toFixed(2)}`
-            : `Credit limit not enough. Available MVR ${available.toFixed(2)}`
-        );
-      });
-  }, [open, customer?.name, customer?.phone, cartTotal]);
+
 
   const detectCurrentLocation = (): void => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
