@@ -44,10 +44,19 @@ describe("Sales Finance", () => {
     mount(); expect(await screen.findByRole("alert")).toHaveTextContent("Offline");
     expect(screen.queryByRole("button", { name: "Record transaction" })).not.toBeInTheDocument();
   });
+  it("shows historical actual cash and recorded excess without posting money", async () => {
+    mock.rpc.mockResolvedValue({data:{...data,accounts:[],closings:[{drawer_id:'old',closed_at:'2026-10-02T18:20:40Z',cashier_name:'Cashier',opening_cash:1300,cash_sales:1035.58,deductions:575,counted_cash:525,recorded_expected:184.57,difference:340.43,card_sales:0,transfer_sales:1629.78,tracked:false}]},error:null});
+    mount(); await screen.findByText('Daily Cash Collections · All Recorded Closings');
+    fireEvent.change(screen.getByLabelText('Dashboard date'),{target:{value:'2026-10-02'}});
+    expect(await screen.findByText('Historical record · not posted to accounts')).toBeInTheDocument();
+    expect(screen.getAllByText(/525.00/).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button',{name:'Record receipt'})).not.toBeInTheDocument();
+    expect(mock.rpc.mock.calls.every(([name])=>name!=='finance_post')).toBe(true);
+  });
   it("requires an explicit opening balance rather than inventing historic cash", async () => {
     mock.rpc.mockResolvedValue({ data: { ...data, accounts: [] }, error: null });
     mount(); await screen.findByText("Initialize cash tracking");
     expect(screen.getByLabelText("Opening balance (MVR)")).toHaveValue(null);
-    expect(screen.getByText(/Historical drawer totals are not added again/)).toBeInTheDocument();
+    expect(screen.getByText(/Daily counts are not summed/)).toBeInTheDocument();
   });
 });
