@@ -27,7 +27,7 @@ describe("Sales Finance", () => {
   });
   it("posts a deposit using one atomic request and keeps its ID on retry", async () => {
     mock.rpc.mockImplementation(async name => ["finance_snapshot", "finance_dashboard"].includes(name) ? { data, error: null } : { error: { message: "Connection interrupted" } });
-    mount(); fireEvent.click(await screen.findByRole("button", { name: /Deposit On Hand Cash to Account/ })); await screen.findByText("Record a money movement");
+    mount(); fireEvent.click(await screen.findByRole("button", { name: /Deposit to Bank Account/ })); await screen.findByText("Record a money movement");
     fireEvent.change(screen.getByLabelText("Bank account"), { target: { value: "bank" } });
     fireEvent.change(screen.getByLabelText("Amount (MVR)"), { target: { value: "500" } });
     fireEvent.change(screen.getByLabelText("Reason / purchase details / deposit reference"), { target: { value: "Deposit slip 123" } });
@@ -38,6 +38,15 @@ describe("Sales Finance", () => {
     const calls = mock.rpc.mock.calls.filter(([name]) => name === "finance_post");
     expect(calls[0][1]).toEqual(calls[1][1]);
     expect(calls[0][1]).toMatchObject({ p_kind: "deposit", p_amount: 500, p_account: "bank", p_reason: "Deposit slip 123" });
+  });
+  it("records an other-source deposit without a cash transfer", async () => {
+    mount(); fireEvent.click(await screen.findByRole("button", {name:/Deposit to Bank Account/}));
+    fireEvent.change(screen.getByLabelText("Deposit source"),{target:{value:"other"}});
+    fireEvent.change(screen.getByLabelText("Bank account"),{target:{value:"bank"}});
+    fireEvent.change(screen.getByLabelText("Amount (MVR)"),{target:{value:"125"}});
+    fireEvent.change(screen.getByLabelText("Reason / purchase details / deposit reference"),{target:{value:"Owner contribution"}});
+    fireEvent.click(screen.getByRole("button",{name:"Record transaction"}));
+    await waitFor(()=>expect(mock.rpc).toHaveBeenCalledWith("finance_post",expect.objectContaining({p_kind:"bank_receipt",p_amount:125,p_account:"bank"})));
   });
   it("hides money-entry controls when the database cannot be read", async () => {
     mock.rpc.mockResolvedValue({ error: { message: "Offline" } });

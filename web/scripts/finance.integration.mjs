@@ -151,6 +151,21 @@ assert.deepEqual(await balances(),{cash:0,bank:1405},'Deposit transfers all avai
 await assert.rejects(post('cash_expense',1),/Insufficient/);
 await post('bank_expense',100,receiving);
 assert.equal((await balances()).bank,1305);
+await db.exec(await readFile(new URL('../supabase/migrations/0048_finance_external_deposits.sql',import.meta.url),'utf8'));
+const externalRequest=crypto.randomUUID();
+await post('bank_receipt',250,receiving,'Owner contribution',null,0,externalRequest);
+assert.deepEqual(await balances(),{cash:0,bank:1555},'Other source adds only to bank');
+await post('bank_receipt',250,receiving,'Owner contribution',null,0,externalRequest);
+assert.equal((await balances()).bank,1555,'Retry does not duplicate external deposit');
+await assert.rejects(post('bank_receipt',10,null),/Select a bank account/);
+await assert.rejects(post('bank_receipt',0,receiving),/greater than zero/);
+await post('cash_receipt',80);
+await post('deposit',30,receiving);
+assert.deepEqual(await balances(),{cash:50,bank:1585},'Cash-source deposit transfers the same amount atomically');
+await assert.rejects(post('deposit',51,receiving),/Insufficient/);
+assert.deepEqual(await balances(),{cash:50,bank:1585},'Failed cash deposit changes neither account');
+await db.exec("set test.admin='false'");
+await assert.rejects(post('bank_receipt',10,receiving),/Admin access required/);
 await db.close();
 console.log('PASS: setup, history cutoff, drawer cash, approval deduplication, float carry-forward, deposits, expenses, settlement fees, retries, overdrafts, immutability, validation and admin-only database access.');
 
