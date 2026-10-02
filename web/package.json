@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "electron": "npm run build && electron .",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "test:finance": "node scripts/finance.integration.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -73,6 +74,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@eslint/js": "^9.32.0",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.6.0",
@@ -103,18 +105,18 @@
     "axios": "1.13.2"
   },
   "build": {
-  "appId": "com.oribarakah.store",
-  "productName": "Ori Barakah Store",
-  "artifactName": "Ori-Barakah-Store-Setup-${version}.${ext}",
-  "win": {
-    "target": "nsis",
-    "icon": "build/icon.ico"
-  },
-  "nsis": {
-    "oneClick": false,
-    "allowToChangeInstallationDirectory": true,
-    "createDesktopShortcut": true,
-    "createStartMenuShortcut": true
+    "appId": "com.oribarakah.store",
+    "productName": "Ori Barakah Store",
+    "artifactName": "Ori-Barakah-Store-Setup-${version}.${ext}",
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

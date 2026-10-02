@@ -187,7 +187,7 @@ export default function CashDrawerPage() {
       );
       return;
     }
-    if (counted <= 0) {
+    if (counted < 0) {
       toast.error(
         "Enter the actual counted cash (denomination count) before closing."
       );
@@ -199,6 +199,7 @@ export default function CashDrawerPage() {
       );
       return;
     }
+    if (counted === 0 && !window.confirm("Confirm that the drawer contains no cash. Close with a zero counted balance?")) return;
     let reason: string | undefined;
     if (openedByOther) {
       const ok = window.confirm(

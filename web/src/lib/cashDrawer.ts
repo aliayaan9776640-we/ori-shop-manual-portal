@@ -407,13 +407,13 @@ export const useCashDrawers = create<CashDrawerState>()(
           closedByName:
             closer?.name ?? patch.closedByName ?? existing.closedByName ?? existing.cashierName,
         };
-        set({
-          drawers: get().drawers.map((d) => (d.id === id ? updated : d)),
-        });
         const r = await persistDrawer(updated);
         if (!r.ok) {
           throw new Error(r.error ?? "Failed to save closing record");
         }
+        set({
+          drawers: get().drawers.map((d) => (d.id === id ? updated : d)),
+        });
         const byOther =
           closer && existing.cashierId && closer.id !== existing.cashierId;
         writeAudit({

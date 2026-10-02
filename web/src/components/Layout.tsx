@@ -53,6 +53,7 @@ const NAV: NavItem[] = [
   { to: "/sales", label: "Sales (POS)", icon: ShoppingCart, roles: ["admin", "cashier"] },
   { to: "/quotations", label: "Quotations", icon: FileText, roles: ["admin", "cashier"] },
   { to: "/bills", label: "Bill History", icon: History, roles: ["admin", "cashier"] },
+  { to: "/sales-finance", label: "Sales Management · Cash & Accounts", icon: Wallet, roles: ["admin"] },
   { to: "/cash-drawer", label: "Cash Drawer", icon: Wallet, roles: ["admin", "cashier"] },
   { to: "/suppliers", label: "Suppliers", icon: Truck, roles: ["admin", "storekeeper"] },
   { to: "/orders", label: "Orders", icon: ClipboardList, roles: ["admin", "storekeeper"] },

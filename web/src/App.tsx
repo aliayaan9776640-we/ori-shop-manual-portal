@@ -23,6 +23,7 @@ import CustomerLogin from "./pages/CustomerLogin";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
 import Sales from "./pages/Sales";
+import SalesFinance from "./pages/SalesFinance";
 import Suppliers from "./pages/Suppliers";
 import Orders from "./pages/Orders";
 import PurchaseOrders from "./pages/PurchaseOrders";
@@ -550,6 +551,7 @@ function AnimatedRoutes() {
           <Route path="/sales" element={<RoleGate roles={["admin", "cashier"]}><Sales /></RoleGate>} />
           <Route path="/bills" element={<RoleGate roles={["admin", "cashier"]}><BillHistory /></RoleGate>} />
           <Route path="/quotations" element={<RoleGate roles={["admin", "cashier"]}><Quotations /></RoleGate>} />
+          <Route path="/sales-finance" element={<RoleGate roles={["admin"]}><SalesFinance /></RoleGate>} />
           <Route path="/cash-drawer" element={<RoleGate roles={["admin", "cashier"]}><CashDrawerPage /></RoleGate>} />
           <Route path="/suppliers" element={<RoleGate roles={["admin", "storekeeper"]}><Suppliers /></RoleGate>} />
           <Route path="/purchase-orders" element={<RoleGate roles={["admin", "storekeeper"]}><PurchaseOrders /></RoleGate>} />
