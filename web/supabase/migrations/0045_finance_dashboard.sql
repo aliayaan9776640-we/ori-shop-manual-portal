@@ -1,5 +1,5 @@
 begin;
-create function public.finance_dashboard(p_day date default (now() at time zone 'Indian/Maldives')::date) returns jsonb
+create or replace function public.finance_dashboard(p_day date default (now() at time zone 'Indian/Maldives')::date) returns jsonb
 language plpgsql security definer set search_path=public,pg_temp as $$
 declare result jsonb; month_start timestamptz; month_end timestamptz;
 begin
@@ -14,7 +14,7 @@ begin
       coalesce(sum(case when s.payment_method='card' then s.total else 0 end),0) as card,
       coalesce(sum(case when s.payment_method='bank' then s.total when s.payment_method='split' then coalesce(s.bank_amount,0) else 0 end),0) as bank,
       coalesce(sum(case when s.payment_method='credit' then s.total else 0 end),0) as credit
-    from public.sales s where not coalesce(s.voided,false)
+    from public.sales s where not coalesce((to_jsonb(s)->>'voided')::boolean,false)
       and s.created_at >= ((p_day-6)::timestamp at time zone 'Indian/Maldives')
       and s.created_at < ((p_day+1)::timestamp at time zone 'Indian/Maldives')
     group by 1
@@ -30,3 +30,4 @@ revoke all on function public.finance_dashboard(date) from public;
 grant execute on function public.finance_dashboard(date) to authenticated;
 notify pgrst,'reload schema';
 commit;
+

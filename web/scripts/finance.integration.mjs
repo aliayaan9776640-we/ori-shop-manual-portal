@@ -116,3 +116,4 @@ await db.exec(`set test.admin='false'`);
 await assert.rejects(db.query("select finance_dashboard('2026-10-02')"),/Admin access required/);
 await db.close();
 console.log('PASS: setup, history cutoff, drawer cash, approval deduplication, float carry-forward, deposits, expenses, settlement fees, retries, overdrafts, immutability, validation and admin-only database access.');
+
