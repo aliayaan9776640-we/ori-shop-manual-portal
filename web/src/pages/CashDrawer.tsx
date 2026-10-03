@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSettings } from "@/lib/settings";
+import { expectedDrawerCash } from "@/lib/drawerCalculation";
 import { readPosHolds } from "@/lib/posHolds";
 
 export default function CashDrawerPage() {
@@ -92,6 +93,7 @@ export default function CashDrawerPage() {
   const [openingCash, setOpeningCash] = useState<string>("");
   const [denominations, setDenominations] =
     useState<DenominationCount[]>(DEFAULT_DENOMINATIONS);
+  const [countEntered, setCountEntered] = useState(false);
   const [closeNotes, setCloseNotes] = useState<string>("");
   const [fromDate, setFromDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [toDate, setToDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
@@ -99,6 +101,11 @@ export default function CashDrawerPage() {
   // Shop-wide: there can only be ONE open drawer at a time.
   // Any cashier sees and may close it.
   const myDrawer = drawers.find((d) => d.status === "open");
+  useEffect(() => {
+    setDenominations(DEFAULT_DENOMINATIONS.map((d) => ({ ...d })));
+    setCountEntered(false);
+    setCloseNotes("");
+  }, [myDrawer?.id]);
   const openedByOther =
     !!myDrawer && !!user && myDrawer.cashierId !== user.id;
 
@@ -141,11 +148,12 @@ export default function CashDrawerPage() {
     .filter((r) => r.status === "approved")
     .reduce((sum, r) => sum + r.amount, 0);
   const cashUsed = +(approvedCashOut || myDrawer?.cashUsed || 0).toFixed(2);
-  // Expected Drawer Cash = Opening Cash + Cash Sales - Change Given - Approved Cash Out
-  const expectedDrawer = +(opening + aggregates.cash - changeGiven - cashUsed).toFixed(2);
+  // Sales totals are net of customer change; deduct only approved cash out.
+  const expectedDrawer = expectedDrawerCash(opening, aggregates.cash, cashUsed);
   const difference = +(counted - expectedDrawer).toFixed(2);
 
   const setDen = (value: number, count: number): void => {
+    setCountEntered(true);
     setDenominations((prev) =>
       prev.map((d) =>
         d.value === value ? { ...d, count: Math.max(0, count) } : d
@@ -562,7 +570,7 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
               <div className="space-y-2 text-sm">
                 <Row label="Opening cash" value={formatCurrency(opening)} />
                 <Row label="Total cash sales" value={formatCurrency(aggregates.cash)} />
-                <Row label="Change given" value={`- ${formatCurrency(changeGiven)}`} />
+                <Row label="Change given (already included in net cash sales)" value={formatCurrency(changeGiven)} />
                 <Row label="Approved cash out" value={`- ${formatCurrency(cashUsed)}`} />
                 <div className="my-1 border-t border-slate-200" />
                 <Row label="Card sales" value={formatCurrency(aggregates.card)} />
@@ -574,7 +582,9 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
                   value={formatCurrency(expectedDrawer)}
                   bold
                 />
-                <Row label="Actual counted cash" value={formatCurrency(counted)} bold />
+                <Row label="Actual counted cash" value={countEntered ? formatCurrency(counted) : "Not counted yet"} bold />
+                {!countEntered && <p className="rounded-lg bg-slate-50 p-3 text-muted-foreground">Enter the actual cash count below to calculate excess or shortage.</p>}
+                {countEntered && (
                 <div
                   className={`mt-1 flex items-center justify-between rounded-lg px-3 py-2 ${
                     difference === 0
@@ -602,7 +612,7 @@ ${d.notes ? `<div style="margin-top:10px;padding:8px;background:#fefce8;border-r
                   >
                     {formatCurrency(Math.abs(difference))}
                   </span>
-                </div>
+                </div>)}
               </div>
             )}
           </div>
