@@ -166,6 +166,18 @@ await assert.rejects(post('deposit',51,receiving),/Insufficient/);
 assert.deepEqual(await balances(),{cash:50,bank:1585},'Failed cash deposit changes neither account');
 await db.exec("set test.admin='false'");
 await assert.rejects(post('bank_receipt',10,receiving),/Admin access required/);
+await db.exec("reset role; set test.admin='true'; alter table sales add column drawer_id text; alter table sales add column invoice_no text; alter table sales add column bank_transfer_name text; alter table sales add column bank_transfer_phone text;");
+await db.exec("insert into sales(id,drawer_id,invoice_no,created_at,payment_method,total,bank_transfer_name,bank_transfer_phone) values('linked-transfer','separate-float','INV-1',now(),'bank',50,'Test payer','Reference123')");
+await db.exec(await readFile(new URL('../supabase/migrations/0049_finance_bank_history.sql',import.meta.url),'utf8'));
+const statement=(await db.query('select finance_bank_history($1) data',[receiving])).rows[0].data;
+assert.equal(statement.entries[0].balance_after,1585,'Latest statement balance equals account balance');
+assert.equal(statement.entries.find(e=>e.kind==='transfer_settlement').transfers[0].reference,'Reference123','Statement includes linked sale transfer references');
+assert.equal(statement.entries.find(e=>e.kind==='bank_expense').change,-100,'Spending is shown as debit');
+assert.equal(statement.entries.find(e=>e.kind==='bank_receipt').change,250,'External deposits are shown as credit');
+assert.equal(statement.entries.at(-1).balance_after,1000,'Opening statement balance is preserved');
+await assert.rejects(db.query('select finance_bank_history(null,-1)'),/Invalid offset/);
+await db.exec("set test.admin='false'");
+await assert.rejects(db.query('select finance_bank_history()'),/Admin access required/);
 await db.close();
 console.log('PASS: setup, history cutoff, drawer cash, approval deduplication, float carry-forward, deposits, expenses, settlement fees, retries, overdrafts, immutability, validation and admin-only database access.');
 

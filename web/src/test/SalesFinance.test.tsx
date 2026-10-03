@@ -72,6 +72,7 @@ describe("Sales Finance", () => {
   it.each([/Today’s Total Sales/,/Today’s Card Payments/,/Today’s Bank Transfers/,/Today’s Cash Sales/,/Total Deposited/,/Money Used/,/Bank Account Balance/])('opens details for %s',async label=>{
     mount(); fireEvent.click(await screen.findByRole('button',{name:label}));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
+    if (String(label).includes('Bank Account Balance')) await screen.findByText('No recorded bank transactions for this account.');
     expect(mock.rpc.mock.calls.every(([name])=>name!=='finance_post')).toBe(true);
   });
   it('provides bank setup from a deposit with no bank accounts',async()=>{
