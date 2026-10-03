@@ -15,8 +15,9 @@ describe("cash collection range",()=>{
   render(<CashCollectionRange closings={rows}/>);
   fireEvent.change(screen.getByLabelText("Collected from"),{target:{value:"2026-10-01"}});
   fireEvent.change(screen.getByLabelText("Collected to"),{target:{value:"2026-10-02"}});
+  expect(screen.getByTestId("collection-net")).toHaveTextContent("-MVR 445.00");
+  expect(screen.getByRole("status")).toHaveTextContent("2026-10-01 to 2026-10-02");
   fireEvent.click(screen.getByRole("button",{name:"Check range"}));
-  expect(screen.getByTestId("collection-net")).toHaveTextContent("445.00");
   expect(screen.getByText("First cashier")).toBeInTheDocument();
   expect(screen.queryByText("Third cashier")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button",{name:"All dates"}));
@@ -29,6 +30,7 @@ describe("cash collection range",()=>{
   fireEvent.change(screen.getByLabelText("Collected to"),{target:{value:"2026-10-01"}});
   fireEvent.click(screen.getByRole("button",{name:"Check range"}));
   expect(screen.getByRole("alert")).toHaveTextContent("From date");
+  expect(screen.queryByTestId("collection-net")).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Collected to"),{target:{value:"2026-10-05"}});
   fireEvent.click(screen.getByRole("button",{name:"Check range"}));
   expect(screen.getByText("No cash drawer closings in this range.")).toBeInTheDocument();

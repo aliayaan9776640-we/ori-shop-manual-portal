@@ -14,16 +14,15 @@ const cents = (value: number) => Math.round(Number(value) * 100);
 export default function CashCollectionRange({ closings }: { closings: Closing[] }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const [range, setRange] = useState({ from: "", to: "" });
-  const [error, setError] = useState("");
+  const range = { from, to };
+  const error = from && to && from > to ? "From date must be on or before To date." : "";
   const [expanded, setExpanded] = useState(false);
-  const rows = collectionRange(closings, range.from, range.to).sort((a,b) => b.closed_at.localeCompare(a.closed_at));
+  const rows = (error ? [] : collectionRange(closings, range.from, range.to)).sort((a,b) => b.closed_at.localeCompare(a.closed_at));
   const actual = rows.reduce((sum,c) => sum + cents(c.counted_cash),0)/100;
   const opening = rows.reduce((sum,c) => sum + cents(c.opening_cash),0)/100;
   const net = rows.reduce((sum,c) => sum + cents(c.counted_cash) - cents(c.opening_cash),0)/100;
   const apply = (start: string, end: string) => {
-    if (start && end && start > end) { setError("From date must be on or before To date."); return; }
-    setFrom(start); setTo(end); setRange({from:start,to:end}); setError(""); setExpanded(true);
+    setFrom(start); setTo(end); setExpanded(true);
   };
   return <section className="rounded-xl border bg-white p-4" aria-label="Cash collection range">
     <h2 className="text-sm font-bold">Daily Cash Collections · All Recorded Closings</h2>
@@ -36,6 +35,7 @@ export default function CashCollectionRange({ closings }: { closings: Closing[] 
       <Button type="button" variant="outline" onClick={() => apply("","")}>All dates</Button>
     </form>
     {error && <p role="alert" className="mt-2 text-sm text-destructive">{error}</p>}
+    {!error && <>
     <p className="mt-3 text-xs text-slate-500" role="status">Showing {range.from || "earliest record"} to {range.to || "latest record"} · Both dates included · Maldives closing dates</p>
     <div className="mt-3 grid gap-3 sm:grid-cols-3">
       <div><p className="text-xs text-slate-500">Net cash collected across {rows.length} closings</p><strong className="text-xl" data-testid="collection-net">{money(net)}</strong></div>
@@ -45,5 +45,6 @@ export default function CashCollectionRange({ closings }: { closings: Closing[] 
     <p className="mt-3 text-xs text-slate-500">Daily collection = actual counted cash − opening float. Actual counts already include excess, shortages and drawer cash-outs. This total is before later deposits and spending. Selecting a range does not change current account balances.</p>
     <Button className="mt-3" type="button" variant="outline" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? "Hide collection records" : "View collection records"}</Button>
     {expanded && <div className="mt-3 max-h-96 overflow-auto rounded-lg border"><table className="w-full text-sm"><thead className="bg-muted"><tr>{["Closed / cashier","Actual cash","Opening float","Net collected","Cash out (already deducted)","Excess / shortage (already included)"].map(h => <th className="whitespace-nowrap p-3 text-left" key={h}>{h}</th>)}</tr></thead><tbody>{rows.map(c => <tr key={c.drawer_id} className="border-t"><td className="p-3">{new Date(c.closed_at).toLocaleString("en-GB",{timeZone:"Indian/Maldives",dateStyle:"medium",timeStyle:"short"})}<div className="text-xs text-muted-foreground">{c.cashier_name}</div></td>{[Number(c.counted_cash),Number(c.opening_cash),(cents(c.counted_cash)-cents(c.opening_cash))/100,Number(c.deductions),Number(c.difference)].map((value,index) => <td className="whitespace-nowrap p-3" key={index}>{money(value)}</td>)}</tr>)}</tbody></table>{!rows.length && <p className="p-4 text-muted-foreground">No cash drawer closings in this range.</p>}</div>}
+    </>}
   </section>;
 }
