@@ -8,7 +8,7 @@ type Entry = {id:string;created_at:string;kind:string;amount:number;fee:number;c
 const money=(v:number)=>formatCurrency(Number(v));
 const date=(v:string)=>new Date(v).toLocaleString('en-GB',{timeZone:'Indian/Maldives',dateStyle:'medium',timeStyle:'short'});
 const names:Record<string,string>={bank_opening:'Opening balance',deposit:'Deposit from on-hand cash',bank_receipt:'Deposit from other source',bank_expense:'Money used',card_settlement:'Card payments',transfer_settlement:'Customer bank transfers'};
-export default function BankAccountHistory({banks,updated,onAdd}:{banks:Bank[];updated:string;onAdd:()=>void}) {
+export default function BankAccountHistory({banks,updated,onAdd,onSpend}:{banks:Bank[];updated:string;onAdd:()=>void;onSpend?:(account:string)=>void}) {
  const [account,setAccount]=useState(''); const [offset,setOffset]=useState(0);
  const [rows,setRows]=useState<Entry[]>([]); const [count,setCount]=useState(0); const [loading,setLoading]=useState(true); const [error,setError]=useState(''); const [retry,setRetry]=useState(0);
  const generation=useRef(0); const loadedKey=useRef<string | null>(null);
@@ -24,7 +24,7 @@ export default function BankAccountHistory({banks,updated,onAdd}:{banks:Bank[];u
   return()=>{++generation.current;};
  },[account,offset,updated,retry]);
  return <div className="space-y-4">
-  <div className="flex flex-wrap items-end gap-3"><label className="flex-1 text-sm">History account<select aria-label="History account" className="mt-1 block w-full rounded-md border bg-background p-2" value={account} onChange={e=>{setAccount(e.target.value);setOffset(0);}}><option value="">All bank accounts</option>{banks.map(b=><option value={b.id} key={b.id}>{b.name}</option>)}</select></label><Button onClick={onAdd} variant="outline">Add bank account</Button></div>
+  <div className="flex flex-wrap items-end gap-3"><label className="flex-1 text-sm">History account<select aria-label="History account" className="mt-1 block w-full rounded-md border bg-background p-2" value={account} onChange={e=>{setAccount(e.target.value);setOffset(0);}}><option value="">All bank accounts</option>{banks.map(b=><option value={b.id} key={b.id}>{b.name}</option>)}</select></label><Button onClick={()=>onSpend?.(account)}>Use Bank Money</Button><Button onClick={onAdd} variant="outline">Add bank account</Button></div>
   <div className="rounded-xl bg-blue-50 p-4"><p className="text-xs text-slate-600">Current recorded bank balance</p><strong className="text-2xl">{money(banks.filter(b=>!account||b.id===account).reduce((s,b)=>s+Number(b.balance),0))}</strong></div>
   <p className="text-xs text-muted-foreground">Bank credits and debits recorded in this portal. Expand a customer-transfer entry to check the linked sales transfer details. These details explain the posted receipt and are not credited again.</p>
   {loading ? <p role="status">Loading bank history…</p> : error ? <div role="alert">{error}<Button variant="outline" onClick={()=>setRetry(retry+1)}>Retry history</Button></div> : <>

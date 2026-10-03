@@ -62,7 +62,7 @@ describe("Sales Finance", () => {
     expect(screen.queryByRole('button',{name:'Record receipt'})).not.toBeInTheDocument();
     expect(mock.rpc.mock.calls.every(([name])=>name!=='finance_post')).toBe(true);
   });
-  it.each([["Use Cash","cash_expense"],["Use Money (Cash / Bank)","bank_expense"],["Deposit to Bank Account","deposit"],["Add Bank Account","bank_opening"]])("opens %s in a visible dialog", async (label,action) => {
+  it.each([["Use Cash","cash_expense"],["Use Bank Money","bank_expense"],["Deposit to Bank Account","deposit"],["Add Bank Account","bank_opening"]])("opens %s in a visible dialog", async (label,action) => {
     mount(); fireEvent.click(await screen.findByRole('button',{name:label,exact:true}));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByLabelText('Action')).toHaveValue(action);
