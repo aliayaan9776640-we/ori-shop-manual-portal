@@ -329,6 +329,7 @@ interface AppState {
       bankTransferPhone?: string;
       /** Final POS amount due after GST, fees, and discount. */
       totalOverride?: number;
+      discountAmount?: number;
       cashAmount?: number;
       bankAmount?: number;
     }
@@ -1788,12 +1789,12 @@ export const useStore = create<AppState>()((set, get) => ({
     const stateBeforeSale = get();
     const itemTotal = items.reduce((s, x) => s + x.total, 0);
     const total =
-      paymentMethod === "credit" &&
       typeof opts?.totalOverride === "number" &&
       Number.isFinite(opts.totalOverride)
         ? Math.max(0, +opts.totalOverride.toFixed(2))
         : itemTotal;
-    const profit = items.reduce((s, x) => s + x.profit, 0);
+    const discountAmount = Math.min(itemTotal, Math.max(0, Number(opts?.discountAmount) || 0));
+    const profit = +(items.reduce((s, x) => s + x.profit, 0) - discountAmount).toFixed(2);
     const localSaleId = localId("sl");
     const cashierId = get().currentUserId ?? "";
     // Link the sale to the cashier's currently-open cash drawer so reports

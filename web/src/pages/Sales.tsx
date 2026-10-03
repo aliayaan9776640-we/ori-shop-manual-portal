@@ -452,7 +452,7 @@ export default function Sales() {
     0
   );
   const bagFee = bagCount * bagFeeUnit;
-  const discountAmt = Math.min(discount, subtotal);
+  const discountAmt = Math.max(0, Math.min(discount, subtotal));
   // Distribute discount proportionally between GST and non-GST items so GST is
   // only computed on the discounted portion of GST-applicable items.
   const discGst =
@@ -689,17 +689,15 @@ export default function Sales() {
       payment,
       payment === "credit" ? customerId : undefined,
       cashChangeForSale,
-      payment === "credit"
-        ? { totalOverride: grandTotal }
-        : isBankTransferSelected
-          ? {
-              bankTransferName: bankTransferName.trim(),
-              bankTransferPhone: bankTransferPhone.trim(),
-              ...(payment === "split"
-                ? { cashAmount: splitCash, bankAmount: splitBank }
-                : {}),
-            }
-          : undefined
+      {
+        totalOverride: grandTotal,
+        discountAmount: discountAmt,
+        ...(isBankTransferSelected ? {
+          bankTransferName: bankTransferName.trim(),
+          bankTransferPhone: bankTransferPhone.trim(),
+        } : {}),
+        ...(payment === "split" ? { cashAmount: splitCash, bankAmount: splitBank } : {}),
+      }
       );
     } catch (error) {
       setSavingSale(false);
@@ -1433,7 +1431,7 @@ export default function Sales() {
                   <>
                     <SumRow
                       label="Est. profit"
-                      value={formatCurrency(profit)}
+                      value={formatCurrency(profit - discountAmt)}
                       tone="success"
                     />
                     <SumRow
