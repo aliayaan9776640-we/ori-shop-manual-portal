@@ -1,3 +1,4 @@
+import { dashboardAnalysisRecords } from "@/lib/dashboardAnalysis";
 import { formatDateTime } from "@/lib/format";
 import { useMemo, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -116,8 +117,8 @@ function SectionTitle({ title, hint, action }: { title: string; hint?: string; a
 
 function useDashboardData() {
   const products = useStore((s) => s.products);
-  const sales = useStore((s) => s.sales);
-  const damaged = useStore((s) => s.damaged);
+  const salesRecords = useStore((s) => s.sales);
+  const damageRecords = useStore((s) => s.damaged);
   const orders = useStore((s) => s.orders);
   const customers = useStore((s) => s.customers);
   const users = useStore((s) => s.users);
@@ -128,6 +129,8 @@ function useDashboardData() {
   const batches = useStore((s) => s.batches);
 
   return useMemo(() => {
+    const sales = dashboardAnalysisRecords(salesRecords);
+    const damaged = dashboardAnalysisRecords(damageRecords);
     const now = new Date();
     const today = new Date(now); today.setHours(0, 0, 0, 0);
     const startOfWeek = new Date(today); startOfWeek.setDate(today.getDate() - today.getDay());
@@ -249,7 +252,7 @@ function useDashboardData() {
       todaysSales: todays,
       gstEnabled, gstPercent, gstCollectedMonth, gstCollectedToday,
     };
-  }, [products, sales, damaged, orders, customers, users, logs, gstEnabled, gstPercent, batches, nearExpiryDays]);
+  }, [products, salesRecords, damageRecords, orders, customers, users, logs, gstEnabled, gstPercent, batches, nearExpiryDays]);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1094,6 +1097,7 @@ export default function Dashboard() {
 
   return (
     <>
+      <p className="text-sm text-muted-foreground">Sales and profit analysis starts on 1 September 2026 (Maldives time).</p>
       <PageHeader title={`${user.role.charAt(0).toUpperCase()}${user.role.slice(1)} Dashboard`} description={subtitle} />
       {user.role === "admin" && <AdminDashboard data={data} />}
       {user.role === "cashier" && <CashierDashboard data={data} />}
