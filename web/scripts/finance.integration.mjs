@@ -178,6 +178,14 @@ assert.equal(statement.entries.at(-1).balance_after,1000,'Opening statement bala
 await assert.rejects(db.query('select finance_bank_history(null,-1)'),/Invalid offset/);
 await db.exec("set test.admin='false'");
 await assert.rejects(db.query('select finance_bank_history()'),/Admin access required/);
+await db.exec("set test.admin='true'");
+await db.exec(await readFile(new URL('../supabase/migrations/0050_finance_cash_history.sql',import.meta.url),'utf8'));
+const cashHistory=(await db.query('select finance_cash_history() data')).rows[0].data;
+assert.equal(cashHistory.entries[0].balance_after,50,'Cash history matches current balance');
+assert.equal(cashHistory.entries.find(e=>e.kind==='deposit').change,-30,'Deposit is a cash debit');
+assert.equal(cashHistory.entries.find(e=>e.kind==='drawer_float_excluded').change,-1300,'History shows float exclusion');
+await db.exec("set test.admin='false'");
+await assert.rejects(db.query('select finance_cash_history()'),/Admin access required/);
 await db.close();
 console.log('PASS: setup, history cutoff, drawer cash, approval deduplication, float carry-forward, deposits, expenses, settlement fees, retries, overdrafts, immutability, validation and admin-only database access.');
 

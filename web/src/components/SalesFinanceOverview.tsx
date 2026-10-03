@@ -16,8 +16,8 @@ export default function SalesFinanceOverview({ accounts, summary, day, openFloat
   const banks=accounts.filter(a=>a.kind==='bank');
   const today=summary.days.find(d=>d.day===day) ?? { total:0,cash:0,card:0,bank:0,credit:0 };
   const tiles=[
-    {title:cash?'On Hand Cash':'Last Counted Drawer Cash',value:cash?.balance ?? latestClosing?.counted_cash,help:cash?(cash.exclude_opening_float?'Daily collections · opening float excluded':'Available outside open drawers'):latestClosing?`Counted ${new Date(latestClosing.closed_at).toLocaleString('en-GB',{timeZone:'Indian/Maldives',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} · includes excess`:'No closed drawer recorded',Icon:Banknote,color:'emerald',action:cash?'deposit':'initialize'},
-    {title:'Bank Account Balance',value:banks.length?banks.reduce((s,a)=>s+Number(a.balance),0):undefined,help:'All recorded bank accounts',Icon:Landmark,color:'blue',action:'view_banks'},
+    {title:cash?'On Hand Cash':'Last Counted Drawer Cash',value:cash?.balance ?? latestClosing?.counted_cash,help:cash?(cash.exclude_opening_float?'Click to view cash transaction history':'Click to view cash transaction history'):latestClosing?`Counted ${new Date(latestClosing.closed_at).toLocaleString('en-GB',{timeZone:'Indian/Maldives',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} · includes excess`:'No closed drawer recorded',Icon:Banknote,color:'emerald',action:cash?'view_cash':'initialize'},
+    {title:'Bank Account Balance',value:banks.length?banks.reduce((s,a)=>s+Number(a.balance),0):undefined,help:'Click to view bank transaction history',Icon:Landmark,color:'blue',action:'view_banks'},
     {title:"Today’s Total Sales",value:today.total,help:'All payment methods · selected date',Icon:ShoppingCart,color:'amber',action:'view_sales'},
     {title:"Today’s Card Payments",value:today.card,help:'Auto added to bank on closing',Icon:CreditCard,color:'emerald',action:'view_sales'},
     {title:"Today’s Bank Transfers",value:today.bank,help:'Auto added to bank on closing',Icon:ArrowLeftRight,color:'violet',action:'view_sales'},
