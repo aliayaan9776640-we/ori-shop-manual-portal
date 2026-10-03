@@ -1,0 +1,17 @@
+import {useState} from 'react';
+import {Dialog,DialogContent,DialogTitle,DialogDescription} from '@/components/ui/dialog';
+import {Button} from '@/components/ui/button';
+import {formatCurrency,formatDateTime} from '@/lib/format';
+import type {Sale,DamagedItem} from '@/lib/types';
+export default function DashboardSalesDetails({title,sales,damaged,from,onClose}:{title:string;sales:Sale[];damaged:DamagedItem[];from:string;onClose:()=>void}) {
+ const [page,setPage]=useState(0);
+ const revenue=sales.reduce((sum,s)=>sum+s.total,0); const gross=sales.reduce((sum,s)=>sum+s.profit,0); const loss=damaged.reduce((sum,d)=>sum+d.valueLoss,0);
+ const sorted=[...sales].sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime());
+ return <Dialog open onOpenChange={open=>{if(!open)onClose();}}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl"><DialogTitle>{title} · Calculation details</DialogTitle><DialogDescription>Included records from {from}. Analysis excludes records before 1 September 2026.</DialogDescription>
+ <div className="grid gap-3 sm:grid-cols-3"><div className="rounded-lg bg-amber-50 p-3"><p className="text-xs">Total sales · {sales.length} records</p><strong>{formatCurrency(revenue)}</strong></div><div className="rounded-lg bg-blue-50 p-3"><p className="text-xs">Sales profit before damage</p><strong>{formatCurrency(gross)}</strong></div><div className="rounded-lg bg-green-50 p-3"><p className="text-xs">Profit after damage</p><strong>{formatCurrency(gross-loss)}</strong></div></div>
+ <p className="text-sm">Revenue = sum of the sale amounts below. Profit = {formatCurrency(gross)} sales profit − {formatCurrency(loss)} damage losses = {formatCurrency(gross-loss)}.</p>
+ <div className="max-h-80 overflow-auto rounded-lg border"><table className="w-full text-sm"><thead className="bg-muted"><tr>{['Date / sale reference','Payment','Amount','Sales profit'].map(h=><th key={h} className="p-3 text-left">{h}</th>)}</tr></thead><tbody>{sorted.slice(page*50,page*50+50).map(s=><tr key={s.id} className="border-t"><td className="p-3">{formatDateTime(s.date)}<p className="break-all text-xs text-muted-foreground">{s.id}</p></td><td className="p-3">{s.paymentMethod}</td><td className="whitespace-nowrap p-3">{formatCurrency(s.total)}</td><td className="whitespace-nowrap p-3">{formatCurrency(s.profit)}</td></tr>)}</tbody></table>{!sales.length&&<p className="p-3">No sales in this period.</p>}</div>
+ <div className="flex items-center justify-between"><Button variant="outline" disabled={!page} onClick={()=>setPage(page-1)}>Previous sales</Button><span className="text-xs">{sales.length?page*50+1:0}–{Math.min(page*50+50,sales.length)} of {sales.length}</span><Button variant="outline" disabled={(page+1)*50>=sales.length} onClick={()=>setPage(page+1)}>Next sales</Button></div>
+ <details><summary className="cursor-pointer text-sm font-semibold">Damage deductions · {damaged.length} records · {formatCurrency(loss)}</summary><div className="mt-2 max-h-48 overflow-auto">{damaged.map(d=><div key={d.id} className="border-t py-2 text-sm"><div className="flex justify-between gap-3"><span>{d.name}</span><strong>{formatCurrency(d.valueLoss)}</strong></div><p className="text-xs text-muted-foreground">{formatDateTime(d.date)} · {d.reason}</p></div>)}{!damaged.length&&<p className="text-sm">No damage deductions in this period.</p>}</div></details>
+ </DialogContent></Dialog>;
+}

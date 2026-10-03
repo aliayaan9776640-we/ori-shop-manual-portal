@@ -1,3 +1,4 @@
+import DashboardSalesDetails from "@/components/DashboardSalesDetails";
 import { dashboardAnalysisRecords } from "@/lib/dashboardAnalysis";
 import { formatDateTime } from "@/lib/format";
 import { useMemo, useEffect, useState } from "react";
@@ -55,6 +56,7 @@ import { Percent } from "lucide-react";
 /* -------------------------------------------------------------------------- */
 
 interface KpiCardProps {
+  onClick?: () => void;
   label: string;
   value: string;
   hint?: string;
@@ -62,7 +64,8 @@ interface KpiCardProps {
   tone?: "default" | "success" | "warning" | "danger" | "gold" | "primary";
 }
 
-function KpiCard({ label, value, hint, icon: Icon, tone = "default" }: KpiCardProps) {
+function KpiCard({ label, value, hint, icon: Icon, tone = "default", onClick }: KpiCardProps) {
+  const Container = onClick ? "button" : "div";
   const toneClass: Record<string, string> = {
     default: "from-white to-slate-50 text-slate-900",
     primary: "from-[hsl(75,40%,28%)] to-[hsl(75,42%,22%)] text-white",
@@ -80,8 +83,8 @@ function KpiCard({ label, value, hint, icon: Icon, tone = "default" }: KpiCardPr
     gold: "bg-white/15 text-white",
   };
   return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br ${toneClass[tone]} p-5 shadow-sm transition hover:shadow-md`}
+    <Container type={onClick ? "button" : undefined} onClick={onClick}
+      className={`text-left relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br ${toneClass[tone]} p-5 shadow-sm transition hover:shadow-md`}
     >
       <div className="flex items-start justify-between">
         <div className="min-w-0">
@@ -99,7 +102,7 @@ function KpiCard({ label, value, hint, icon: Icon, tone = "default" }: KpiCardPr
           <Icon className="h-5 w-5" />
         </div>
       </div>
-    </div>
+    </Container>
   );
 }
 
@@ -245,6 +248,12 @@ function useDashboardData() {
 
     return {
       products, sales, damaged, orders, customers, users, logs,
+      periodRecords: {
+        today: {sales:todays,damaged:damaged.filter(d=>isSameDay(d.date,now)),from:today},
+        week: {sales:sales.filter(s=>new Date(s.date)>=startOfWeek),damaged:damaged.filter(d=>new Date(d.date)>=startOfWeek),from:startOfWeek},
+        month: {sales:sales.filter(s=>new Date(s.date)>=startOfMonth),damaged:damaged.filter(d=>new Date(d.date)>=startOfMonth),from:startOfMonth},
+        year: {sales:sales.filter(s=>new Date(s.date)>=startOfYear),damaged:damaged.filter(d=>new Date(d.date)>=startOfYear),from:new Date(Math.max(startOfYear.getTime(),Date.parse('2026-09-01T00:00:00+05:00')))}
+      },
       todayTotals, week, month, year,
       stockValue, lowStock, outOfStock, readyToSell, damagedValue, pendingOrders, creditTotal,
       expiry: groups, batches, nearExpiryDays,
@@ -688,6 +697,7 @@ function BankTransferReport({ sales }: { sales: Sale[] }) {
 /* -------------------------------------------------------------------------- */
 
 function AdminDashboard({ data }: { data: ReturnType<typeof useDashboardData> }) {
+  const [salesPeriod,setSalesPeriod] = useState<"today"|"week"|"month"|"year"|null>(null);
   const pendingApprovals = data.customers.filter(
     (c) => c.approvalStatus === "pending"
   ).length;
@@ -815,12 +825,13 @@ function AdminDashboard({ data }: { data: ReturnType<typeof useDashboardData> })
         </Link>
       )}
 
+      {salesPeriod && <DashboardSalesDetails key={salesPeriod} title={{today:"Today",week:"This Week",month:"This Month",year:"This Year"}[salesPeriod]} sales={data.periodRecords[salesPeriod].sales} damaged={data.periodRecords[salesPeriod].damaged} from={data.periodRecords[salesPeriod].from.toLocaleDateString('en-GB',{timeZone:'Indian/Maldives'})} onClose={()=>setSalesPeriod(null)}/>}
       {/* Period sales */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <KpiCard label="Today" value={formatCurrency(data.todayTotals.revenue)} hint={`${data.todayTotals.count} sales`} icon={Coins} tone="gold" />
-        <KpiCard label="This Week" value={formatCurrency(data.week.revenue)} hint={`${data.week.count} sales`} icon={TrendingUp} tone="primary" />
-        <KpiCard label="This Month" value={formatCurrency(data.month.revenue)} hint={`profit ${formatCurrency(data.month.profit)}`} icon={TrendingUp} tone="success" />
-        <KpiCard label="This Year" value={formatCurrency(data.year.revenue)} hint={`profit ${formatCurrency(data.year.profit)}`} icon={TrendingUp} />
+        <KpiCard onClick={()=>setSalesPeriod("today")} label="Today" value={formatCurrency(data.todayTotals.revenue)} hint={`${data.todayTotals.count} sales`} icon={Coins} tone="gold" />
+        <KpiCard onClick={()=>setSalesPeriod("week")} label="This Week" value={formatCurrency(data.week.revenue)} hint={`${data.week.count} sales`} icon={TrendingUp} tone="primary" />
+        <KpiCard onClick={()=>setSalesPeriod("month")} label="This Month" value={formatCurrency(data.month.revenue)} hint={`profit ${formatCurrency(data.month.profit)}`} icon={TrendingUp} tone="success" />
+        <KpiCard onClick={()=>setSalesPeriod("year")} label="This Year" value={formatCurrency(data.year.revenue)} hint={`profit ${formatCurrency(data.year.profit)}`} icon={TrendingUp} />
       </div>
 
       {/* GST Purchase summary */}
