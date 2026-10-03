@@ -17,13 +17,13 @@ export default function SalesFinanceOverview({ accounts, summary, day, openFloat
   const today=summary.days.find(d=>d.day===day) ?? { total:0,cash:0,card:0,bank:0,credit:0 };
   const tiles=[
     {title:cash?'On Hand Cash':'Last Counted Drawer Cash',value:cash?.balance ?? latestClosing?.counted_cash,help:cash?(cash.exclude_opening_float?'Daily collections · opening float excluded':'Available outside open drawers'):latestClosing?`Counted ${new Date(latestClosing.closed_at).toLocaleString('en-GB',{timeZone:'Indian/Maldives',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} · includes excess`:'No closed drawer recorded',Icon:Banknote,color:'emerald',action:cash?'deposit':'initialize'},
-    {title:'Bank Account Balance',value:banks.length?banks.reduce((s,a)=>s+Number(a.balance),0):undefined,help:'All recorded bank accounts',Icon:Landmark,color:'blue',action:'bank_opening'},
-    {title:"Today’s Total Sales",value:today.total,help:'All payment methods · selected date',Icon:ShoppingCart,color:'amber'},
-    {title:"Today’s Card Payments",value:today.card,help:'Auto added to bank on closing',Icon:CreditCard,color:'emerald'},
-    {title:"Today’s Bank Transfers",value:today.bank,help:'Auto added to bank on closing',Icon:ArrowLeftRight,color:'violet'},
-    {title:"Today’s Cash Sales",value:today.cash,help:'Counted cash posted at closing',Icon:Wallet,color:'rose'},
-    {title:'Total Deposited (Month)',value:summary.deposited,help:'From cash on hand to bank',Icon:PackageCheck,color:'emerald'},
-    {title:'Money Used (Month)',value:summary.used,help:'Cash-outs, spending and bank fees',Icon:HandCoins,color:'amber'},
+    {title:'Bank Account Balance',value:banks.length?banks.reduce((s,a)=>s+Number(a.balance),0):undefined,help:'All recorded bank accounts',Icon:Landmark,color:'blue',action:'view_banks'},
+    {title:"Today’s Total Sales",value:today.total,help:'All payment methods · selected date',Icon:ShoppingCart,color:'amber',action:'view_sales'},
+    {title:"Today’s Card Payments",value:today.card,help:'Auto added to bank on closing',Icon:CreditCard,color:'emerald',action:'view_sales'},
+    {title:"Today’s Bank Transfers",value:today.bank,help:'Auto added to bank on closing',Icon:ArrowLeftRight,color:'violet',action:'view_sales'},
+    {title:"Today’s Cash Sales",value:today.cash,help:'Counted cash posted at closing',Icon:Wallet,color:'rose',action:'view_sales'},
+    {title:'Total Deposited (Month)',value:summary.deposited,help:'From cash on hand to bank',Icon:PackageCheck,color:'emerald',action:'view_deposits'},
+    {title:'Money Used (Month)',value:summary.used,help:'Cash-outs, spending and bank fees',Icon:HandCoins,color:'amber',action:'view_used'},
   ];
   const colors:Record<string,string>={emerald:'from-emerald-50 to-green-50 border-emerald-100 text-emerald-700',blue:'from-blue-50 to-sky-50 border-blue-100 text-blue-700',amber:'from-amber-50 to-yellow-50 border-amber-100 text-amber-700',violet:'from-violet-50 to-purple-50 border-violet-100 text-violet-700',rose:'from-rose-50 to-pink-50 border-rose-100 text-rose-700'};
   const days=Array.from({length:7},(_,i)=>{const d=new Date(`${day}T12:00:00+05:00`);d.setUTCDate(d.getUTCDate()-6+i);const key=maldivesDay(d);return summary.days.find(x=>x.day===key)??{day:key,cash:0,card:0,bank:0,credit:0,total:0};});

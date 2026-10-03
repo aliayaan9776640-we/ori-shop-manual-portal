@@ -62,6 +62,26 @@ describe("Sales Finance", () => {
     expect(screen.queryByRole('button',{name:'Record receipt'})).not.toBeInTheDocument();
     expect(mock.rpc.mock.calls.every(([name])=>name!=='finance_post')).toBe(true);
   });
+  it.each([["Use Cash","cash_expense"],["Use Money (Cash / Bank)","bank_expense"],["Deposit to Bank Account","deposit"],["Add Bank Account","bank_opening"]])("opens %s in a visible dialog", async (label,action) => {
+    mount(); fireEvent.click(await screen.findByRole('button',{name:label,exact:true}));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Action')).toHaveValue(action);
+    fireEvent.click(screen.getByRole('button',{name:'Close',exact:true}));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+  it.each([/Today’s Total Sales/,/Today’s Card Payments/,/Today’s Bank Transfers/,/Today’s Cash Sales/,/Total Deposited/,/Money Used/,/Bank Account Balance/])('opens details for %s',async label=>{
+    mount(); fireEvent.click(await screen.findByRole('button',{name:label}));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(mock.rpc.mock.calls.every(([name])=>name!=='finance_post')).toBe(true);
+  });
+  it('provides bank setup from a deposit with no bank accounts',async()=>{
+    mock.rpc.mockResolvedValue({data:{...data,accounts:[data.accounts[0]]},error:null});
+    mount(); fireEvent.click(await screen.findByRole('button',{name:'Deposit to Bank Account'}));
+    expect(screen.getByRole('button',{name:'Record transaction'})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button',{name:'Set up bank account'}));
+    expect(screen.getByLabelText('Account name')).toBeInTheDocument();
+    expect(screen.getByLabelText('Action')).toHaveValue('bank_opening');
+  });
   it("requires an explicit opening balance rather than inventing historic cash", async () => {
     mock.rpc.mockResolvedValue({ data: { ...data, accounts: [] }, error: null });
     mount(); await screen.findByText("Initialize cash tracking");
