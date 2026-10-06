@@ -206,13 +206,21 @@ export default function Customers() {
     setEditing(null);
   };
 
-  const submitPayment = (): void => {
+  const submitPayment = async (): Promise<void> => {
     if (!payOpen) return;
     if (payAmt <= 0) {
       toast.error("Amount must be > 0");
       return;
     }
-    addCreditPayment(payOpen.id, payAmt, payNote);
+    if (payAmt > payOpen.balance + 0.004) {
+      toast.error(`Payment cannot exceed ${formatCurrency(payOpen.balance)}`);
+      return;
+    }
+    const result = await addCreditPayment(payOpen.id, payAmt, payNote);
+    if (!result.ok) {
+      toast.error(result.error ?? "Payment could not be recorded");
+      return;
+    }
     toast.success("Payment recorded");
     setPayOpen(null);
     setPayAmt(0);
@@ -760,7 +768,7 @@ export default function Customers() {
             <Button variant="outline" onClick={() => setPayOpen(null)}>
               Cancel
             </Button>
-            <Button onClick={submitPayment}>Confirm</Button>
+            <Button onClick={() => { void submitPayment(); }}>Confirm</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

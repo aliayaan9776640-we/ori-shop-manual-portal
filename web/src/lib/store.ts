@@ -364,7 +364,11 @@ interface AppState {
   ) => Promise<{ ok: boolean; id?: string; error?: string }>;
   updateCustomer: (id: string, patch: Partial<CreditCustomer>) => void;
   deleteCustomer: (id: string) => void;
-  addCreditPayment: (customerId: string, amount: number, note?: string) => void;
+  addCreditPayment: (
+    customerId: string,
+    amount: number,
+    note?: string
+  ) => Promise<{ ok: boolean; error?: string }>;
   approveCustomer: (id: string, finalLimit: number) => void;
   rejectCustomer: (id: string) => void;
 
@@ -1983,22 +1987,10 @@ export const useStore = create<AppState>()((set, get) => ({
             });
           }
         }
-        if (paymentMethod === "credit" && customerId) {
-          const c = get().customers.find((x) => x.id === customerId);
-          if (c) {
-            await supabase
-              .from("customers")
-              .update({ balance: c.balance })
-              .eq("id", customerId);
-            await supabase.from("credit_transactions").insert({
-              customer_id: customerId,
-              type: "sale",
-              amount: total,
-              sale_id: realId,
-              user_id: get().currentUserId,
-            });
-          }
-        }
+        // The database sales trigger creates/updates the credit ledger row and
+        // recalculates the customer balance in the same transaction. Never
+        // write customers.balance separately: concurrent tills could otherwise
+        // overwrite one another with stale values.
         // Mirror consignment products into consignment_sales so the
         // settlement ledger / owner payouts stay in sync regardless of
         // whether the sale was rung up from POS or from the Consignment
@@ -2075,7 +2067,11 @@ export const useStore = create<AppState>()((set, get) => ({
           sales: get().sales.map((s) =>
             s.id === localSaleId ? { ...s, id: realId } : s
           ),
+          creditTx: get().creditTx.map((t) =>
+            t.saleId === localSaleId ? { ...t, saleId: realId } : t
+          ),
         });
+        if (paymentMethod === "credit" && customerId) void get().refreshCredit();
         return { ok: true, saleId: realId };
       })().catch((error: unknown) => {
         set({
@@ -2202,22 +2198,10 @@ export const useStore = create<AppState>()((set, get) => ({
             .update({ stock_pieces: p.stockPieces })
             .eq("id", it.productId);
         }
+        // Updating the saved sale is enough. The database trigger records the
+        // reversal and recalculates the account atomically.
         if (sale.paymentMethod === "credit" && sale.customerId) {
-          const c = get().customers.find((x) => x.id === sale.customerId);
-          if (c) {
-            await supabase
-              .from("customers")
-              .update({ balance: c.balance })
-              .eq("id", sale.customerId);
-            await supabase.from("credit_transactions").insert({
-              customer_id: sale.customerId,
-              type: "payment",
-              amount: sale.total,
-              sale_id: sale.id,
-              note: `Sale voided: ${reason}`,
-              user_id: me.id,
-            });
-          }
+          await get().refreshCredit();
         }
         // Reverse consignment side so payable/qty_sold do not double-count.
         try {
@@ -2768,9 +2752,20 @@ export const useStore = create<AppState>()((set, get) => ({
       .eq("id", cid)
       .then(({ error }) => logErr("customers.delete", error));
   },
-  addCreditPayment: (cid, amount, note) => {
+  addCreditPayment: async (cid, amount, note) => {
     const c = get().customers.find((x) => x.id === cid);
-    const newBalance = Math.max(0, (c?.balance ?? 0) - amount);
+    if (!c) return { ok: false, error: "Credit customer not found" };
+    const roundedAmount = Math.round((Number(amount) + Number.EPSILON) * 100) / 100;
+    if (!Number.isFinite(roundedAmount) || roundedAmount <= 0) {
+      return { ok: false, error: "Amount must be greater than zero" };
+    }
+    if (roundedAmount > c.balance + 0.004) {
+      return {
+        ok: false,
+        error: `Payment exceeds outstanding balance of MVR ${c.balance.toFixed(2)}`,
+      };
+    }
+    const newBalance = Math.max(0, c.balance - roundedAmount);
     const me = get().users.find((u) => u.id === get().currentUserId);
     const nowIso = new Date().toISOString();
     set({
@@ -2786,52 +2781,51 @@ export const useStore = create<AppState>()((set, get) => ({
           customerId: cid,
           date: nowIso,
           type: "payment",
-          amount,
+          amount: roundedAmount,
           note,
           userId: me?.id,
           userName: me?.fullName,
         },
       ],
     });
-    get().log("credit.payment", `Received ${amount.toFixed(2)} from ${cid}`);
-    if (!isSupabaseConfigured) return;
-    supabase
-      .from("customers")
-      .update({ balance: newBalance, last_payment_at: nowIso })
-      .eq("id", cid)
-      .then(({ error }) => {
-        // ignore if last_payment_at column not yet deployed
-        if (
-          error &&
-          !/column .* does not exist|schema cache/i.test(error.message)
-        ) {
-          logErr("customers.balance", error);
-        }
+    get().log("credit.payment", `Received ${roundedAmount.toFixed(2)} from ${cid}`);
+    if (isSupabaseConfigured) {
+      const { error } = await supabase.rpc("record_credit_payment", {
+        p_customer_id: cid,
+        p_amount: roundedAmount,
+        p_note: note ?? null,
       });
-    supabase
-      .from("credit_transactions")
-      .insert({
-        customer_id: cid,
-        type: "payment",
-        amount,
-        note: note ?? null,
-        user_id: get().currentUserId,
-      })
-      .then(({ error }) => logErr("credit_tx.insert", error));
+      if (error) {
+        // Roll back the optimistic entry. The RPC is atomic, so no server
+        // balance/history row exists when it fails.
+        set({
+          customers: get().customers.map((cc) =>
+            cc.id === cid ? c : cc
+          ),
+          creditTx: get().creditTx.filter(
+            (t) => !(t.customerId === cid && t.date === nowIso && t.type === "payment")
+          ),
+        });
+        notifyWriteError("credit.payment", error);
+        return { ok: false, error: error.message };
+      }
+      await get().refreshCredit();
+    }
     if (c) {
-      const paymentMessage = `Hello ${c.name},\nWe received your credit payment of MVR ${amount.toFixed(2)}.\nRemaining credit balance: MVR ${newBalance.toFixed(2)}.\nThank you.`;
+      const paymentMessage = `Hello ${c.name},\nWe received your credit payment of MVR ${roundedAmount.toFixed(2)}.\nRemaining credit balance: MVR ${newBalance.toFixed(2)}.\nThank you.`;
       void import("./creditSends").then(({ useCreditSends }) =>
         useCreditSends.getState().enqueue({
           customerId: c.id,
           customerName: c.name,
           customerPhone: c.phone || null,
-          amount,
+          amount: roundedAmount,
           kind: "reminder",
           message: paymentMessage,
           link: null,
         })
       );
     }
+    return { ok: true };
   },
 
   /* ------------------------ logging -------------------------------- */
@@ -2845,7 +2839,7 @@ export const useStore = create<AppState>()((set, get) => ({
       action,
       detail,
     };
-    set({ logs: [entry, ...get().logs].slice(0, 500) });
+    set({ logs: [entry, ...get().logs] });
     if (!isSupabaseConfigured) return;
     supabase
       .from("activity_logs")

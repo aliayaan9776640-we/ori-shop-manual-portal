@@ -325,9 +325,20 @@ export default function CustomerDetail(): JSX.Element {
   };
 
 
-  const submitPayment = (): void => {
-    if (payAmt <= 0) return toast.error("Amount must be > 0");
-    addCreditPayment(customer.id, payAmt, payNote);
+  const submitPayment = async (): Promise<void> => {
+    if (payAmt <= 0) {
+      toast.error("Amount must be > 0");
+      return;
+    }
+    if (payAmt > customer.balance + 0.004) {
+      toast.error(`Payment cannot exceed ${formatCurrency(customer.balance)}`);
+      return;
+    }
+    const result = await addCreditPayment(customer.id, payAmt, payNote);
+    if (!result.ok) {
+      toast.error(result.error ?? "Payment could not be recorded");
+      return;
+    }
     toast.success("Payment recorded");
     setPayOpen(false);
     setPayAmt(0);
@@ -726,7 +737,7 @@ export default function CustomerDetail(): JSX.Element {
             <Button variant="outline" onClick={() => setPayOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={submitPayment}>Confirm Payment</Button>
+            <Button onClick={() => { void submitPayment(); }}>Confirm Payment</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

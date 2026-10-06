@@ -221,7 +221,7 @@ function pushHistory(entry: BackupHistoryEntry): void {
   try {
     const list = getBackupHistory();
     list.unshift(entry);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 30)));
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
   } catch {
     /* ignore */
   }

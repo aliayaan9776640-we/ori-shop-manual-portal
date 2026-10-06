@@ -14,7 +14,8 @@
     "test:watch": "vitest",
     "electron": "npm run build && electron .",
     "dist": "npm run build && electron-builder",
-    "test:finance": "node scripts/finance.integration.mjs"
+    "test:finance": "node scripts/finance.integration.mjs",
+    "test:credit-ledger": "node scripts/credit-ledger.integration.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

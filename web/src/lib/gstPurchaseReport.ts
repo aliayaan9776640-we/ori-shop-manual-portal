@@ -3,6 +3,7 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { toast } from "sonner";
 import { useStore } from "@/lib/store";
 import type { UnitType } from "@/lib/types";
+import { fetchAllRows } from "@/lib/fetchAllRows";
 
 export type BillStatus =
   | "draft"
@@ -314,16 +315,20 @@ export const useGstPurchaseReport = create<State>()((set, get) => ({
     if (!isSupabaseConfigured) return;
     set({ loading: true });
     const [up, rep] = await Promise.all([
-      supabase
-        .from("supplier_bill_uploads")
-        .select("*")
-        .order("uploaded_at", { ascending: false })
-        .limit(500),
-      supabase
-        .from("gst_purchase_reports")
-        .select("*")
-        .order("bill_date", { ascending: false })
-        .limit(500),
+      fetchAllRows((from, to) =>
+        supabase
+          .from("supplier_bill_uploads")
+          .select("*")
+          .order("uploaded_at", { ascending: false })
+          .range(from, to)
+      ),
+      fetchAllRows((from, to) =>
+        supabase
+          .from("gst_purchase_reports")
+          .select("*")
+          .order("bill_date", { ascending: false })
+          .range(from, to)
+      ),
     ]);
     set({ loading: false });
     const err = up.error ?? rep.error;
