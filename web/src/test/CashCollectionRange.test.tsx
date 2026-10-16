@@ -15,14 +15,14 @@ describe("cash collection range",()=>{
   render(<CashCollectionRange closings={rows}/>);
   fireEvent.change(screen.getByLabelText("Collected from"),{target:{value:"2026-10-01"}});
   fireEvent.change(screen.getByLabelText("Collected to"),{target:{value:"2026-10-02"}});
-  expect(screen.getByTestId("collection-net")).toHaveTextContent("-MVR 445.00");
+  expect(screen.getByTestId("collection-net")).toHaveTextContent("MVR 2,155.00");
   expect(screen.getByRole("status")).toHaveTextContent("2026-10-01 to 2026-10-02");
   fireEvent.click(screen.getByRole("button",{name:"Check range"}));
   expect(screen.getByText("First cashier")).toBeInTheDocument();
   expect(screen.queryByText("Third cashier")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button",{name:"All dates"}));
   expect(screen.getByText("Third cashier")).toBeInTheDocument();
-  expect(screen.getByTestId("collection-net")).toHaveTextContent("245.00");
+  expect(screen.getByTestId("collection-net")).toHaveTextContent("3,655.00");
  });
  it("rejects reversed dates and shows empty periods accurately",()=>{
   render(<CashCollectionRange closings={rows}/>);

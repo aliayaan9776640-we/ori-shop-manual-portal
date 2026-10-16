@@ -186,6 +186,24 @@ assert.equal(cashHistory.entries.find(e=>e.kind==='deposit').change,-30,'Deposit
 assert.equal(cashHistory.entries.find(e=>e.kind==='drawer_float_excluded').change,-1300,'History shows float exclusion');
 await db.exec("set test.admin='false'");
 await assert.rejects(db.query('select finance_cash_history()'),/Admin access required/);
+await db.exec("set test.admin='true'");
+const previous=await balances();
+const autoDebits=Number((await db.query("select sum(amount) amount from finance_entries where source_id is not null and kind in ('drawer_open','drawer_float_excluded')")).rows[0].amount);
+await db.exec(await readFile(new URL('../supabase/migrations/0054_full_closing_cash.sql',import.meta.url),'utf8'));
+assert.deepEqual(await balances(),{cash:previous.cash+autoDebits,bank:previous.bank},'Only automatic cash deductions restored; bank unchanged');
+const restored=await balances();
+await db.exec("insert into cash_drawers(id,opening_cash) values('full-count',1300)");
+assert.deepEqual(await balances(),restored,'Opening drawer does not deduct cash or bank');
+await db.exec("update cash_drawers set cash_used=100 where id='full-count'");
+assert.deepEqual(await balances(),restored,'Drawer cash-used does not debit treasury');
+await db.exec("update cash_drawers set status='closed',counted_cash=2120,closed_at=now() where id='full-count'");
+assert.deepEqual(await balances(),{cash:restored.cash+2120,bank:restored.bank},'Full count added, no float deducted');
+await db.exec("update cash_drawers set status='approved' where id='full-count'");
+assert.equal((await balances()).cash,restored.cash+2120,'Approval does not duplicate cash');
+await post('cash_expense',20);await post('bank_expense',10,receiving);
+assert.deepEqual(await balances(),{cash:restored.cash+2100,bank:restored.bank-10},'Manual actions still debit precisely');
+const correctedHistory=(await db.query('select finance_cash_history() data')).rows[0].data;
+assert.equal(correctedHistory.entries[0].balance_after,(await balances()).cash,'Restoration is included in cash history');
 await db.close();
 console.log('PASS: setup, history cutoff, drawer cash, approval deduplication, float carry-forward, deposits, expenses, settlement fees, retries, overdrafts, immutability, validation and admin-only database access.');
 
