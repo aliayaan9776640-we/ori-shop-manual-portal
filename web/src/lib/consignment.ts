@@ -267,7 +267,7 @@ export interface NewItemDraft {
 
 interface ConsignmentState {
   receipts: ConsignmentReceipt[];
-  restock: (input: { requestId: string; itemId: string; qty: number; date: string; notes: string }) => Promise<void>;
+  restock: (input: { requestId: string; itemId: string; qty: number; date: string; notes: string; sellingPrice: number }) => Promise<void>;
   owners: ConsignmentOwner[];
   items: ConsignmentItem[];
   sales: ConsignmentSale[];
@@ -661,9 +661,9 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
     );
     return s;
   },
-  restock: async ({ requestId, itemId, qty, date, notes }) => {
-    const { error } = await supabase.rpc("restock_consignment", {
-      p_request_id: requestId, p_item_id: itemId, p_qty: qty, p_date: date, p_notes: notes,
+  restock: async ({ requestId, itemId, qty, date, notes, sellingPrice }) => {
+    const { error } = await supabase.rpc("restock_consignment_with_price", {
+      p_request_id: requestId, p_item_id: itemId, p_qty: qty, p_date: date, p_notes: notes, p_price: sellingPrice,
     });
     if (error) throw new Error(error.message);
     await Promise.all([get().load(), useStore.getState().bootstrap()]);

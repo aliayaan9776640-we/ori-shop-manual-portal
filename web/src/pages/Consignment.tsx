@@ -557,6 +557,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
 
   const [restockItem, setRestockItem] = useState<ConsignmentItem | null>(null);
   const [restockQty, setRestockQty] = useState(0);
+  const [restockPrice, setRestockPrice] = useState(0);
   const [restockDate, setRestockDate] = useState(new Date().toISOString().slice(0,10));
   const [restockNotes, setRestockNotes] = useState("");
   const [restockBusy, setRestockBusy] = useState(false);
@@ -565,6 +566,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
   const openRestock = (item: ConsignmentItem): void => {
     restockKey.current = crypto.randomUUID();
     setRestockQty(0);
+    setRestockPrice(item.sellingPrice);
     setRestockNotes("");
     setRestockDate(new Date().toISOString().slice(0, 10));
     setOpen(false);
@@ -573,7 +575,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
   const submitRestock = async () => {
     if (!restockItem || restockLock.current) return;
     restockLock.current=true; setRestockBusy(true);
-    try { await useConsignment.getState().restock({ requestId:restockKey.current,itemId:restockItem.id,qty:restockQty,date:restockDate,notes:restockNotes }); setRestockItem(null); toast.success("Restock saved; previous balance carried forward"); }
+    try { await useConsignment.getState().restock({ requestId:restockKey.current,itemId:restockItem.id,qty:restockQty,date:restockDate,notes:restockNotes,sellingPrice:restockPrice }); setRestockItem(null); toast.success("Restock saved; previous balance carried forward"); }
     catch(e) { toast.error(e instanceof Error ? e.message : "Restock failed"); }
     finally { restockLock.current=false;setRestockBusy(false); }
   };
@@ -983,7 +985,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
       </Dialog>
 
       {/* sell dialog */}
-      <Dialog open={!!restockItem} onOpenChange={v => {if(!v && !restockBusy)setRestockItem(null);}}><DialogContent><DialogHeader><DialogTitle>Restock {restockItem?.name}</DialogTitle></DialogHeader><p>Current balance: {restockItem ? itemBalance(restockItem) : 0}. New balance: {restockItem ? itemBalance(restockItem)+restockQty : 0}</p><Label>Additional quantity</Label><NumInput value={restockQty} onChange={setRestockQty} min={0}/><Label>Received date</Label><Input type="date" value={restockDate} onChange={e=>setRestockDate(e.target.value)}/><Label>Notes</Label><Textarea value={restockNotes} onChange={e=>setRestockNotes(e.target.value)}/><Button disabled={restockBusy || restockQty<=0 || !restockDate} onClick={()=>void submitRestock()}>{restockBusy ? "Saving…" : "Save restock"}</Button></DialogContent></Dialog>
+      <Dialog open={!!restockItem} onOpenChange={v => {if(!v && !restockBusy)setRestockItem(null);}}><DialogContent><DialogHeader><DialogTitle>Restock {restockItem?.name}</DialogTitle></DialogHeader><p>Current balance: {restockItem ? itemBalance(restockItem) : 0}. New balance: {restockItem ? itemBalance(restockItem)+restockQty : 0}</p><Label>Additional quantity</Label><NumInput value={restockQty} onChange={setRestockQty} min={0}/><Label>Selling price (per unit)</Label><NumInput aria-label="Restock selling price" value={restockPrice} onChange={setRestockPrice} min={0}/><p className="text-xs text-muted-foreground">Last saved price is filled in automatically. Change it here to save a new price for future sales.</p><Label>Received date</Label><Input type="date" value={restockDate} onChange={e=>setRestockDate(e.target.value)}/><Label>Notes</Label><Textarea value={restockNotes} onChange={e=>setRestockNotes(e.target.value)}/><Button disabled={restockBusy || restockQty<=0 || !restockDate || !Number.isFinite(restockPrice) || restockPrice<0} onClick={()=>void submitRestock()}>{restockBusy ? "Saving…" : "Save restock"}</Button></DialogContent></Dialog>
       <Dialog open={sellOpen} onOpenChange={setSellOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
