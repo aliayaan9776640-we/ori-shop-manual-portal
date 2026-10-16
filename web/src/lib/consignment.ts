@@ -1,8 +1,9 @@
 import { create } from "zustand";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { fetchAllRows } from "./fetchAllRows";
-import { useStore, rowToProduct } from "./store";
-import type { Product, UnitType, SaleItem } from "./types";
+import { useCashDrawers } from "./cashDrawer";
+import { useStore } from "./store";
+import type { SaleItem } from "./types";
 
 /* ---------------------------- types ---------------------------- */
 
@@ -57,6 +58,7 @@ export interface ConsignmentSale {
 }
 
 export interface ConsignmentReturn {
+  returnValue?: number;
   id: string;
   itemId: string;
   ownerId: string;
@@ -67,6 +69,8 @@ export interface ConsignmentReturn {
 }
 
 export interface ConsignmentSettlement {
+  drawerId?: string;
+  adjustsId?: string;
   id: string;
   ownerId: string;
   amount: number;
@@ -153,138 +157,6 @@ const rowToItem = (r: ItemRow): ConsignmentItem => ({
   inventoryProductId: r.inventory_product_id ?? undefined,
 });
 
-/* Map ConsignmentUnit (which has 'packet') down to the inventory UnitType. */
-const toInventoryUnit = (u: ConsignmentUnit): UnitType =>
-  u === "packet" ? "piece" : (u as UnitType);
-
-interface ProductInsertRow {
-  name: string;
-  barcode: string | null;
-  category: string;
-  supplier_id: string | null;
-  purchase_price: number;
-  selling_price: number;
-  margin_pct: number;
-  unit_type: UnitType;
-  pieces_per_case: number;
-  stock_pieces: number;
-  reorder_level: number;
-  expiry_date: string | null;
-  boat_fee: number;
-  other_cost: number;
-  photo_url: string | null;
-  is_consignment?: boolean;
-}
-
-/**
- * Find an existing consignment-flagged product by name (case-insensitive)
- * or create a new one. Keeps the local store in sync and records an
- * inventory_transactions row for the intake.
- */
-async function ensureConsignmentProduct(
-  itemName: string,
-  ownerName: string,
-  unitType: ConsignmentUnit,
-  sellingPrice: number,
-  ownerPayout: number,
-  qtyToAdd: number,
-): Promise<Product | null> {
-  if (!isSupabaseConfigured) return null;
-  const nameKey = itemName.trim().toLowerCase();
-  const existing = useStore
-    .getState()
-    .products.find(
-      (p) => p.isConsignment === true && p.name.trim().toLowerCase() === nameKey,
-    );
-  if (existing) {
-    if (qtyToAdd > 0) {
-      useStore
-        .getState()
-        .adjustStock(existing.id, qtyToAdd, "Consignment intake - " + ownerName);
-    }
-    if (sellingPrice > 0 && existing.sellingPrice !== sellingPrice) {
-      useStore.getState().updateProduct(existing.id, { sellingPrice });
-    }
-    return existing;
-  }
-  const baseRow: ProductInsertRow = {
-    name: itemName,
-    barcode: null,
-    category: ownerName ? "Consignment - " + ownerName : "Consignment",
-    supplier_id: null,
-    purchase_price: ownerPayout,
-    selling_price: sellingPrice,
-    margin_pct: 0,
-    unit_type: toInventoryUnit(unitType),
-    pieces_per_case: 1,
-    stock_pieces: qtyToAdd,
-    reorder_level: 0,
-    expiry_date: null,
-    boat_fee: 0,
-    other_cost: 0,
-    photo_url: null,
-    is_consignment: true,
-  };
-  let { data, error } = await supabase
-    .from("products")
-    .insert(baseRow)
-    .select()
-    .single();
-  if (error) {
-    const code = (error as { code?: string }).code;
-    const missingCol =
-      code === "PGRST204" ||
-      /is_consignment|column .* does not exist|schema cache/i.test(error.message ?? "");
-    if (missingCol) {
-      console.warn(
-        "[consignment] products.is_consignment missing - run migration 0014_consignment_inventory_integration.sql",
-      );
-      const fallbackRow: Omit<ProductInsertRow, "is_consignment"> = {
-        name: baseRow.name,
-        barcode: baseRow.barcode,
-        category: baseRow.category,
-        supplier_id: baseRow.supplier_id,
-        purchase_price: baseRow.purchase_price,
-        selling_price: baseRow.selling_price,
-        margin_pct: baseRow.margin_pct,
-        unit_type: baseRow.unit_type,
-        pieces_per_case: baseRow.pieces_per_case,
-        stock_pieces: baseRow.stock_pieces,
-        reorder_level: baseRow.reorder_level,
-        expiry_date: baseRow.expiry_date,
-        boat_fee: baseRow.boat_fee,
-        other_cost: baseRow.other_cost,
-        photo_url: baseRow.photo_url,
-      };
-      const retry = await supabase
-        .from("products")
-        .insert(fallbackRow)
-        .select()
-        .single();
-      data = retry.data;
-      error = retry.error;
-    }
-  }
-  if (error || !data) {
-    logErr("products.consignment.insert", error);
-    return null;
-  }
-  const product = rowToProduct(data as Parameters<typeof rowToProduct>[0]);
-  // Force the flag locally even if the column was missing on the server.
-  product.isConsignment = true;
-  useStore.setState({ products: [...useStore.getState().products, product] });
-  if (qtyToAdd > 0) {
-    void supabase.from("inventory_transactions").insert({
-      product_id: product.id,
-      type: "in",
-      qty: qtyToAdd,
-      note: "Consignment intake - " + ownerName,
-      user_id: useStore.getState().currentUserId,
-    });
-  }
-  return product;
-}
-
 interface SaleRow {
   id: string;
   item_id: string;
@@ -320,6 +192,7 @@ const rowToSale = (r: SaleRow, userName?: string): ConsignmentSale => ({
 });
 
 interface ReturnRow {
+  return_value?: number | null;
   id: string;
   item_id: string;
   owner_id: string;
@@ -329,6 +202,7 @@ interface ReturnRow {
   created_at: string;
 }
 const rowToReturn = (r: ReturnRow): ConsignmentReturn => ({
+  returnValue: r.return_value == null ? undefined : Number(r.return_value),
   id: r.id,
   itemId: r.item_id,
   ownerId: r.owner_id,
@@ -339,6 +213,8 @@ const rowToReturn = (r: ReturnRow): ConsignmentReturn => ({
 });
 
 interface SettlementRow {
+  drawer_id?: string | null;
+  adjusts_id?: string | null;
   id: string;
   owner_id: string;
   amount: number;
@@ -351,6 +227,8 @@ interface SettlementRow {
   created_at: string;
 }
 const rowToSettlement = (r: SettlementRow, userName?: string): ConsignmentSettlement => ({
+  drawerId: r.drawer_id ?? undefined,
+  adjustsId: r.adjusts_id ?? undefined,
   id: r.id,
   ownerId: r.owner_id,
   amount: Number(r.amount),
@@ -375,6 +253,7 @@ export interface NewOwnerDraft {
 }
 
 export interface NewItemDraft {
+  requestId?: string;
   ownerId: string;
   name: string;
   unitType: ConsignmentUnit;
@@ -387,6 +266,8 @@ export interface NewItemDraft {
 }
 
 interface ConsignmentState {
+  receipts: ConsignmentReceipt[];
+  restock: (input: { requestId: string; itemId: string; qty: number; date: string; notes: string }) => Promise<void>;
   owners: ConsignmentOwner[];
   items: ConsignmentItem[];
   sales: ConsignmentSale[];
@@ -415,12 +296,16 @@ interface ConsignmentState {
   }) => Promise<ConsignmentSale | null>;
 
   recordReturn: (input: {
+    requestId: string;
     itemId: string;
     qty: number;
     notes?: string;
   }) => Promise<ConsignmentReturn | null>;
 
   recordSettlement: (input: {
+    requestId: string;
+    adjustsId?: string;
+    cashAction?: string;
     ownerId: string;
     amount: number;
     paymentMethod?: string;
@@ -431,6 +316,7 @@ interface ConsignmentState {
 }
 
 export const useConsignment = create<ConsignmentState>()((set, get) => ({
+  receipts: [],
   owners: [],
   items: [],
   sales: [],
@@ -448,12 +334,13 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
     if (get().loading) return;
     set({ loading: true });
     try {
-      const [ownersRes, itemsRes, salesRes, returnsRes, settlementsRes] = await Promise.all([
+      const [ownersRes, itemsRes, salesRes, returnsRes, settlementsRes, receiptsRes] = await Promise.all([
         fetchAllRows((from, to) => supabase.from("consignment_owners").select("*").order("name").range(from, to)),
         fetchAllRows((from, to) => supabase.from("consignment_items").select("*").order("created_at", { ascending: false }).range(from, to)),
         fetchAllRows((from, to) => supabase.from("consignment_sales").select("*").order("created_at", { ascending: false }).range(from, to)),
         fetchAllRows((from, to) => supabase.from("consignment_returns").select("*").order("created_at", { ascending: false }).range(from, to)),
         fetchAllRows((from, to) => supabase.from("consignment_settlements").select("*").order("created_at", { ascending: false }).range(from, to)),
+        fetchAllRows((from, to) => supabase.from("consignment_receipts").select("*").order("received_date", { ascending: false }).range(from, to)),
       ]);
       if (ownersRes.error && isMissing(ownersRes.error)) {
         console.warn("[consignment] tables missing — run migration 0005_consignment.sql");
@@ -483,10 +370,12 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
       const loadedItems = ((itemsRes.data as ItemRow[] | null) ?? []).map(rowToItem);
       const reconciledItems = loadedItems.map((item) => ({
         ...item,
-        qtySold: Math.max(item.qtySold, soldByItem.get(item.id) ?? 0),
+        qtySold: salesRes.error ? item.qtySold : (soldByItem.get(item.id) ?? 0),
+        qtyReturned: returnsRes.error ? item.qtyReturned : ((returnsRes.data as ReturnRow[] | null) ?? []).filter(r => r.item_id === item.id).reduce((sum, r) => sum + Number(r.qty), 0),
       }));
 
       set({
+        receipts: (receiptsRes.data ?? []) as ConsignmentReceipt[],
         owners: ((ownersRes.data as OwnerRow[] | null) ?? []).map(rowToOwner),
         items: reconciledItems,
         sales: loadedSales,
@@ -546,79 +435,29 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
   },
 
   deleteOwner: async (id) => {
-    set({ owners: get().owners.filter((o) => o.id !== id) });
     if (!isSupabaseConfigured) return;
-    const { error } = await supabase.from("consignment_owners").delete().eq("id", id);
-    logErr("owners.delete", error);
+    const { error } = await supabase.from("consignment_owners").update({ active: false }).eq("id", id);
+    if (error) throw new Error(error.message);
+    set({ owners: get().owners.map(o => o.id === id ? {...o,active:false} : o) });
   },
 
   /* ---------- items ---------- */
   addItem: async (i) => {
     if (!isSupabaseConfigured) return null;
-    const { data, error } = await supabase
-      .from("consignment_items")
-      .insert({
-        owner_id: i.ownerId,
-        name: i.name,
-        unit_type: i.unitType,
-        qty_received: i.qtyReceived,
-        selling_price: i.sellingPrice,
-        owner_payout: i.ownerPayout,
-        commission_pct: i.commissionPct,
-        received_date: i.receivedDate,
-        notes: i.notes ?? null,
-      })
-      .select()
-      .single();
-    if (error) {
-      logErr("items.insert", error);
-      return null;
-    }
-    const item = rowToItem(data as ItemRow);
-
-    // Mirror to inventory products so this stock is visible + sellable in POS.
-    const owner = get().owners.find((o) => o.id === i.ownerId);
-    const product = await ensureConsignmentProduct(
-      i.name,
-      owner?.name ?? "",
-      i.unitType,
-      i.sellingPrice,
-      i.ownerPayout,
-      i.qtyReceived,
-    );
-    if (product) {
-      const { error: linkErr } = await supabase
-        .from("consignment_items")
-        .update({ inventory_product_id: product.id })
-        .eq("id", item.id);
-      if (linkErr) {
-        const code = (linkErr as { code?: string }).code;
-        const missing =
-          code === "PGRST204" ||
-          /inventory_product_id|column .* does not exist|schema cache/i.test(
-            linkErr.message ?? "",
-          );
-        if (!missing) logErr("items.link", linkErr);
-        else
-          console.warn(
-            "[consignment] consignment_items.inventory_product_id missing - run migration 0014_consignment_inventory_integration.sql",
-          );
-      }
-      item.inventoryProductId = product.id;
-    }
-
-    set({ items: [item, ...get().items] });
-    useStore.getState().log(
-      "consignment.item.create",
-      `Received ${item.qtyReceived} ${item.unitType} ${item.name}` +
-        (product ? " (linked to inventory)" : ""),
-    );
+    const {data,error}=await supabase.rpc("receive_consignment",{
+      p_request_id:i.requestId ?? crypto.randomUUID(),p_owner_id:i.ownerId,p_name:i.name,
+      p_unit:i.unitType,p_qty:i.qtyReceived,p_price:i.sellingPrice,p_payout:i.ownerPayout,
+      p_commission:i.commissionPct,p_date:i.receivedDate,p_notes:i.notes ?? null,
+    });
+    if(error)throw new Error(error.message);
+    const item=rowToItem(data as ItemRow);
+    await Promise.all([get().load(),useStore.getState().bootstrap()]);
     return item;
   },
 
   updateItem: async (id, patch) => {
     const before = get().items.find((x) => x.id === id);
-    set({ items: get().items.map((x) => (x.id === id ? { ...x, ...patch } : x)) });
+    if (before && patch.qtyReceived !== undefined && patch.qtyReceived !== before.qtyReceived) throw new Error("Use dated Restock or Return to change stock quantities");
     if (!isSupabaseConfigured) return;
     const row: Record<string, unknown> = {};
     if (patch.name !== undefined) row.name = patch.name;
@@ -632,7 +471,8 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
     if (patch.active !== undefined) row.active = patch.active;
     if (Object.keys(row).length === 0) return;
     const { error } = await supabase.from("consignment_items").update(row).eq("id", id);
-    logErr("items.update", error);
+    if (error) throw new Error(error.message);
+    set({ items: get().items.map((x) => (x.id === id ? { ...x, ...patch } : x)) });
 
     // Sync stock delta into linked inventory product when qtyReceived changes.
     if (
@@ -666,10 +506,12 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
   },
 
   deleteItem: async (id) => {
-    set({ items: get().items.filter((x) => x.id !== id) });
     if (!isSupabaseConfigured) return;
-    const { error } = await supabase.from("consignment_items").delete().eq("id", id);
-    logErr("items.delete", error);
+    const item = get().items.find(i=>i.id===id);
+    if (item && itemBalance(item) > 0) throw new Error("Return or sell the remaining stock before archiving this item");
+    const { error } = await supabase.from("consignment_items").update({ active: false }).eq("id", id);
+    if (error) throw new Error(error.message);
+    set({ items: get().items.map(i=>i.id===id ? {...i,active:false} : i) });
   },
 
   /* ---------- sale ----------
@@ -763,7 +605,7 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
   },
 
   /* ---------- return ---------- */
-  recordReturn: async ({ itemId, qty, notes }) => {
+  recordReturn: async ({ requestId, itemId, qty, notes }) => {
     if (!isSupabaseConfigured) return null;
     if (qty <= 0) return null;
     const item = get().items.find((x) => x.id === itemId);
@@ -774,32 +616,19 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
       console.error("[consignment.return] item is not linked to inventory");
       return null;
     }
-    const { data, error } = await supabase.rpc("record_consignment_return", {
+    const { data, error } = await supabase.rpc("return_consignment_once", {
+      p_request_id: requestId,
       p_item_id: itemId,
       p_qty: qty,
       p_notes: notes ?? null,
     });
     if (error) {
-      logErr("returns.atomic", error);
-      return null;
+      throw new Error(error.message);
     }
     const returnRow = (Array.isArray(data) ? data[0] : data) as ReturnRow | null;
     if (!returnRow) return null;
-    const newReturned = item.qtyReturned + qty;
     const ret = rowToReturn(returnRow);
-    set({
-      returns: [ret, ...get().returns],
-      items: get().items.map((x) =>
-        x.id === itemId ? { ...x, qtyReturned: newReturned } : x
-      ),
-    });
-    useStore.setState({
-      products: useStore.getState().products.map((product) =>
-        product.id === item.inventoryProductId
-          ? { ...product, stockPieces: Math.max(0, product.stockPieces - qty) }
-          : product,
-      ),
-    });
+    await Promise.all([get().load(), useStore.getState().bootstrap()]);
     useStore.getState().log(
       "consignment.return",
       `Returned ${qty} × ${item.name}`
@@ -808,38 +637,43 @@ export const useConsignment = create<ConsignmentState>()((set, get) => ({
   },
 
   /* ---------- settlement ---------- */
-  recordSettlement: async ({ ownerId, amount, paymentMethod, periodFrom, periodTo, notes }) => {
+  recordSettlement: async ({ requestId, adjustsId, cashAction, ownerId, amount, paymentMethod, periodFrom, periodTo, notes }) => {
     if (!isSupabaseConfigured) return null;
-    if (amount <= 0) return null;
+    if (!Number.isFinite(amount) || amount === 0 || (!adjustsId && amount < 0)) return null;
     const me = useStore.getState().currentUserId;
-    const { data, error } = await supabase
-      .from("consignment_settlements")
-      .insert({
-        owner_id: ownerId,
-        amount,
-        payment_method: paymentMethod ?? null,
-        period_from: periodFrom ?? null,
-        period_to: periodTo ?? null,
-        notes: notes ?? null,
-        user_id: me,
-      })
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc("post_consignment_settlement", {
+      p_request_id: requestId, p_owner_id: ownerId, p_amount: amount,
+      p_method: paymentMethod ?? "cash", p_from: periodFrom ?? null,
+      p_to: periodTo ?? null, p_notes: notes ?? null, p_adjusts_id: adjustsId ?? null,
+      p_cash_action: cashAction ?? "linked_drawer",
+    });
     if (error) {
-      logErr("settlements.insert", error);
-      return null;
+      throw new Error(error.message);
     }
     const users = useStore.getState().users;
     const userName = me ? users.find((u) => u.id === me)?.fullName : undefined;
     const s = rowToSettlement(data as SettlementRow, userName);
-    set({ settlements: [s, ...get().settlements] });
+    set({ settlements: [s, ...get().settlements.filter(entry => entry.id !== s.id)] });
+    await useCashDrawers.getState().load();
     useStore.getState().log(
       "consignment.settle",
       `Paid ${amount.toFixed(2)} to consignment owner`
     );
     return s;
   },
+  restock: async ({ requestId, itemId, qty, date, notes }) => {
+    const { error } = await supabase.rpc("restock_consignment", {
+      p_request_id: requestId, p_item_id: itemId, p_qty: qty, p_date: date, p_notes: notes,
+    });
+    if (error) throw new Error(error.message);
+    await Promise.all([get().load(), useStore.getState().bootstrap()]);
+  },
 }));
+
+export interface ConsignmentReceipt {
+  id: string; item_id: string; owner_id: string; qty: number;
+  received_date: string; notes?: string; created_at: string;
+}
 
 /* ---------------------------- selectors ---------------------------- */
 
@@ -866,24 +700,8 @@ export const computeOwnerBalance = (
   const ownerSales = sales.filter((s) => s.ownerId === ownerId);
   const ownerPaid = settlements.filter((s) => s.ownerId === ownerId);
   const totalSalesAmount = ownerSales.reduce((a, s) => a + s.totalAmount, 0);
-  const totalPayable = ownerSales.reduce((a, s) => {
-    const item = ownerItems.find((i) => i.id === s.itemId);
-    return (
-      a +
-      (item && item.commissionPct > 0
-        ? s.totalAmount * (1 - item.commissionPct / 100)
-        : s.payableAmount)
-    );
-  }, 0);
-  const totalCommission = ownerSales.reduce((a, s) => {
-    const item = ownerItems.find((i) => i.id === s.itemId);
-    return (
-      a +
-      (item && item.commissionPct > 0
-        ? s.totalAmount * (item.commissionPct / 100)
-        : s.commission)
-    );
-  }, 0);
+  const totalPayable = ownerSales.reduce((a, s) => a + s.payableAmount, 0);
+  const totalCommission = ownerSales.reduce((a, s) => a + s.commission, 0);
   const totalPaid = ownerPaid.reduce((a, s) => a + s.amount, 0);
   const qtyReceived = ownerItems.reduce((a, i) => a + i.qtyReceived, 0);
   const qtySold = ownerItems.reduce((a, i) => a + i.qtySold, 0);
@@ -894,7 +712,7 @@ export const computeOwnerBalance = (
     totalPayable,
     totalCommission,
     totalPaid,
-    remainingPayable: Math.max(0, totalPayable - totalPaid),
+    remainingPayable: Math.round((totalPayable - totalPaid) * 100) / 100,
     qtyReceived,
     qtySold,
     qtyReturned,

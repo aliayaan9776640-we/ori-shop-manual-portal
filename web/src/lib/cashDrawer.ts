@@ -34,6 +34,7 @@ export interface CashOutRequest {
 }
 
 export interface CashDrawer {
+  revision?: number;
   id: string;
   cashierId: string;
   cashierName: string;
@@ -138,6 +139,7 @@ export const sumDenominations = (d: DenominationCount[]): number =>
 // Supabase row <-> CashDrawer mapping
 // ---------------------------------------------------------------------------
 interface CashDrawerRow {
+  revision?: number;
   id: string;
   cashier_id: string | null;
   cashier_name: string | null;
@@ -176,6 +178,7 @@ const num = (v: number | string | null | undefined): number => {
 };
 
 const fromRow = (r: CashDrawerRow): CashDrawer => ({
+  revision: Number(r.revision ?? 0),
   id: r.id,
   cashierId: r.cashier_id ?? "",
   cashierName: r.cashier_name ?? "",
@@ -213,6 +216,7 @@ const fromRow = (r: CashDrawerRow): CashDrawer => ({
 });
 
 const toInsertRow = (d: CashDrawer): Record<string, unknown> => ({
+  revision: d.revision ?? 0,
   id: d.id,
   cashier_id: d.cashierId || null,
   cashier_name: d.cashierName,
@@ -250,11 +254,15 @@ const persistDrawer = async (
   if (!isSupabaseConfigured) return { ok: true };
 
   const fullRow = toInsertRow(d);
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("cash_drawers")
-    .upsert(fullRow, { onConflict: "id" });
+    .upsert(fullRow, { onConflict: "id" }).select("revision").single();
 
-  if (!error) return { ok: true };
+  if (!error) {
+    d.revision = Number(data?.revision ?? d.revision ?? 0);
+    await useCashDrawers.getState().load();
+    return { ok: true };
+  }
 
   // Backward-compatible fallback: if your Supabase table does not yet have
   // cash_out_requests JSONB column, save all existing drawer fields and keep

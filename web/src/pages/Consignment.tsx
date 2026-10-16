@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ConsignmentOwnerHistory, { ConsignmentOwnerContext, OwnerHistoryLink, useSelectedConsignmentOwner } from "@/components/ConsignmentOwnerHistory";
 import PageHeader from "@/components/PageHeader";
 import NumInput from "@/components/NumInput";
 import {
@@ -10,7 +11,6 @@ import {
   type ConsignmentUnit,
 } from "@/lib/consignment";
 import { useCurrentUser } from "@/lib/store";
-import { useCashDrawers } from "@/lib/cashDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -59,6 +59,8 @@ const UNIT_OPTIONS: ConsignmentUnit[] = ["piece", "packet", "kg", "tin", "box", 
 /* ------------------------------ root ------------------------------ */
 
 export default function ConsignmentPage() {
+  const [selectedOwner, setSelectedOwner] = useState("all");
+  const [activeTab, setActiveTab] = useState("owners");
   const user = useCurrentUser();
   const isAdmin = user?.role === "admin";
   const isStorekeeper = user?.role === "storekeeper";
@@ -114,12 +116,12 @@ export default function ConsignmentPage() {
   const todayPayable = todaySales.reduce((a, s) => a + s.payableAmount, 0);
   const totalUnpaid = owners.reduce((a, o) => {
     const b = computeOwnerBalance(o.id, items, sales, settlements);
-    return a + b.remainingPayable;
+    return a + Math.max(0, b.remainingPayable);
   }, 0);
   const stockBalanceItems = items.filter((i) => itemBalance(i) > 0).length;
 
   return (
-    <>
+    <ConsignmentOwnerContext.Provider value={{ ownerId: selectedOwner, select: setSelectedOwner }}>
       <PageHeader
         title="Consignment"
         description="Stock owned by suppliers / individuals — track receive, sell, settle and return."
@@ -185,7 +187,9 @@ export default function ConsignmentPage() {
         />
       </div>
 
-      <Tabs defaultValue="owners" className="w-full">
+      <div className="my-4"><Label>Consignment owner</Label><Select value={selectedOwner} onValueChange={setSelectedOwner}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All owners</SelectItem>{owners.map(o=><SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}</SelectContent></Select></div>
+      <ConsignmentOwnerHistory tab={activeTab} />
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="mb-4 flex w-full overflow-x-auto">
           <TabsTrigger value="owners" className="gap-1.5">
             <UsersIcon className="h-3.5 w-3.5" /> Owners
@@ -220,7 +224,7 @@ export default function ConsignmentPage() {
           <ReturnsTab canManage={canManageOwners} />
         </TabsContent>
       </Tabs>
-    </>
+    </ConsignmentOwnerContext.Provider>
   );
 }
 
@@ -274,10 +278,15 @@ const blankOwner: OwnerForm = {
 };
 
 function OwnersTab({ canManage }: { canManage: boolean }) {
-  const owners = useConsignment((s) => s.owners);
-  const items = useConsignment((s) => s.items);
-  const sales = useConsignment((s) => s.sales);
-  const settlements = useConsignment((s) => s.settlements);
+  const { ownerId: scopedOwner } = useSelectedConsignmentOwner();
+  const allowners = useConsignment((s) => s.owners);
+  const owners = useMemo(() => allowners.filter(x => scopedOwner === "all" || x.id === scopedOwner), [allowners, scopedOwner]);
+  const allitems = useConsignment((s) => s.items);
+  const items = useMemo(() => allitems.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allitems, scopedOwner]);
+  const allsales = useConsignment((s) => s.sales);
+  const sales = useMemo(() => allsales.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allsales, scopedOwner]);
+  const allsettlements = useConsignment((s) => s.settlements);
+  const settlements = useMemo(() => allsettlements.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allsettlements, scopedOwner]);
   const addOwner = useConsignment((s) => s.addOwner);
   const updateOwner = useConsignment((s) => s.updateOwner);
   const deleteOwner = useConsignment((s) => s.deleteOwner);
@@ -320,10 +329,10 @@ function OwnersTab({ canManage }: { canManage: boolean }) {
   };
 
   const onDelete = async (o: ConsignmentOwner): Promise<void> => {
-    if (!confirm(`Delete owner "${o.name}"? This will remove their items, sales and settlements.`))
+    if (!confirm(`Archive owner "${o.name}"? Their full history will be retained.`))
       return;
-    await deleteOwner(o.id);
-    toast.success("Owner deleted");
+    try { await deleteOwner(o.id); toast.success("Owner archived; history retained"); }
+    catch(e) { toast.error(e instanceof Error ? e.message : "Archive failed"); }
   };
 
   return (
@@ -356,7 +365,7 @@ function OwnersTab({ canManage }: { canManage: boolean }) {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-base font-bold">{o.name}</div>
+                    <OwnerHistoryLink id={o.id} name={o.name} />{!o.active && <Badge variant="outline">Archived</Badge>}
                     {o.phone && (
                       <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                         <Phone className="h-3 w-3" /> {o.phone}
@@ -389,8 +398,8 @@ function OwnersTab({ canManage }: { canManage: boolean }) {
                   <Metric label="Payable" value={formatCurrency(b.totalPayable)} />
                   <Metric label="Paid" value={formatCurrency(b.totalPaid)} />
                   <Metric
-                    label="Unpaid"
-                    value={formatCurrency(b.remainingPayable)}
+                    label={b.remainingPayable < 0 ? "Credit carried forward" : "Unpaid"}
+                    value={formatCurrency(Math.abs(b.remainingPayable))}
                     danger={b.remainingPayable > 0}
                   />
                 </div>
@@ -521,21 +530,42 @@ const blankItem = (): ItemForm => ({
 });
 
 function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean }) {
-  const owners = useConsignment((s) => s.owners);
-  const items = useConsignment((s) => s.items);
+  const { ownerId: scopedOwner } = useSelectedConsignmentOwner();
+  const allowners = useConsignment((s) => s.owners);
+  const owners = useMemo(() => allowners.filter(x => scopedOwner === "all" || x.id === scopedOwner), [allowners, scopedOwner]);
+  const allitems = useConsignment((s) => s.items);
+  const items = useMemo(() => allitems.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allitems, scopedOwner]);
   const addItem = useConsignment((s) => s.addItem);
   const updateItem = useConsignment((s) => s.updateItem);
   const deleteItem = useConsignment((s) => s.deleteItem);
   const recordSale = useConsignment((s) => s.recordSale);
 
-  const [filterOwner, setFilterOwner] = useState<string>("all");
+  const filterOwner = scopedOwner;
+  const { select: setFilterOwner } = useSelectedConsignmentOwner();
   const [itemQuery, setItemQuery] = useState("");
   const [receivedFrom, setReceivedFrom] = useState("");
   const [receivedTo, setReceivedTo] = useState("");
+  const intakeKey=useRef(crypto.randomUUID());
+  const intakeLock=useRef(false);
+  const [saving,setSaving]=useState(false);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ConsignmentItem | null>(null);
   const [form, setForm] = useState<ItemForm>(blankItem());
 
+  const [restockItem, setRestockItem] = useState<ConsignmentItem | null>(null);
+  const [restockQty, setRestockQty] = useState(0);
+  const [restockDate, setRestockDate] = useState(new Date().toISOString().slice(0,10));
+  const [restockNotes, setRestockNotes] = useState("");
+  const [restockBusy, setRestockBusy] = useState(false);
+  const restockKey = useRef(crypto.randomUUID());
+  const restockLock = useRef(false);
+  const submitRestock = async () => {
+    if (!restockItem || restockLock.current) return;
+    restockLock.current=true; setRestockBusy(true);
+    try { await useConsignment.getState().restock({ requestId:restockKey.current,itemId:restockItem.id,qty:restockQty,date:restockDate,notes:restockNotes }); setRestockItem(null); toast.success("Restock saved; previous balance carried forward"); }
+    catch(e) { toast.error(e instanceof Error ? e.message : "Restock failed"); }
+    finally { restockLock.current=false;setRestockBusy(false); }
+  };
   const [sellOpen, setSellOpen] = useState(false);
   const [sellItem, setSellItem] = useState<ConsignmentItem | null>(null);
   const [sellQty, setSellQty] = useState<number>(1);
@@ -557,8 +587,9 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
   }, [items, owners, filterOwner, itemQuery, receivedFrom, receivedTo]);
 
   const openNew = (): void => {
+    intakeKey.current=crypto.randomUUID();
     setEditing(null);
-    setForm(blankItem());
+    setForm({...blankItem(),ownerId:scopedOwner === "all" ? "" : scopedOwner});
     setOpen(true);
   };
   const openEdit = (i: ConsignmentItem): void => {
@@ -590,21 +621,26 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
       toast.error("Quantity must be greater than 0");
       return;
     }
+    if(intakeLock.current)return;
+    intakeLock.current=true;setSaving(true);
+    try {
     if (editing) {
       await updateItem(editing.id, form);
       toast.success("Item updated");
     } else {
-      const c = await addItem(form);
+      const c = await addItem({...form,requestId:intakeKey.current});
       if (c) toast.success("Item received");
-      else toast.error("Failed to add item");
+      else throw new Error("Failed to add item");
     }
     setOpen(false);
+    }catch(e){toast.error(e instanceof Error?e.message:"Save failed");}
+    finally{intakeLock.current=false;setSaving(false);}
   };
 
   const onDelete = async (i: ConsignmentItem): Promise<void> => {
-    if (!confirm(`Delete "${i.name}"? Sales/returns history will be removed too.`)) return;
-    await deleteItem(i.id);
-    toast.success("Item deleted");
+    if (!confirm(`Archive "${i.name}"? Sales and returns history will be retained.`)) return;
+    try { await deleteItem(i.id); toast.success("Item archived; history retained"); }
+    catch(e) { toast.error(e instanceof Error ? e.message : "Archive failed"); }
   };
 
   const openSell = (i: ConsignmentItem): void => {
@@ -653,7 +689,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All owners</SelectItem>
-              {owners.map((o) => (
+              {allowners.map((o) => (
                 <SelectItem key={o.id} value={o.id}>
                   {o.name}
                 </SelectItem>
@@ -714,7 +750,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
                   <tr key={i.id} className="hover:bg-muted/40">
                     <td className="px-3 py-2.5 font-medium">{i.name}</td>
                     <td className="px-3 py-2.5 text-muted-foreground">
-                      {owner?.name ?? "—"}
+                      <OwnerHistoryLink id={owner?.id} name={owner?.name ?? "—"} />
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums">
                       {i.qtyReceived} {i.unitType}
@@ -760,6 +796,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
                         )}
                         {canManage && (
                           <>
+                            <Button size="sm" variant="outline" onClick={() => {restockKey.current=crypto.randomUUID();setRestockQty(0);setRestockNotes("");setRestockDate(new Date().toISOString().slice(0,10));setRestockItem(i);}}>Restock</Button>
                             <Button
                               size="icon"
                               variant="ghost"
@@ -798,7 +835,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
             <div>
               <Label>Owner *</Label>
               <Select
-                value={form.ownerId}
+                disabled={!!editing} value={form.ownerId}
                 onValueChange={(v) => setForm({ ...form, ownerId: v })}
               >
                 <SelectTrigger>
@@ -845,7 +882,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
               <div>
                 <Label>Quantity received *</Label>
                 <NumInput
-                  value={form.qtyReceived}
+                  readOnly={!!editing} value={form.qtyReceived}
                   onChange={(n) => setForm({ ...form, qtyReceived: n })}
                   min={0}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -890,7 +927,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
                 <Label>Date received</Label>
                 <Input
                   type="date"
-                  value={form.receivedDate}
+                  disabled={!!editing} value={form.receivedDate}
                   onChange={(e) =>
                     setForm({ ...form, receivedDate: e.target.value })
                   }
@@ -910,7 +947,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void submit()}>
+            <Button disabled={saving} onClick={() => void submit()}>
               {editing ? "Save changes" : "Receive stock"}
             </Button>
           </DialogFooter>
@@ -918,6 +955,7 @@ function StockTab({ canManage, canSell }: { canManage: boolean; canSell: boolean
       </Dialog>
 
       {/* sell dialog */}
+      <Dialog open={!!restockItem} onOpenChange={v => {if(!v && !restockBusy)setRestockItem(null);}}><DialogContent><DialogHeader><DialogTitle>Restock {restockItem?.name}</DialogTitle></DialogHeader><p>Current balance: {restockItem ? itemBalance(restockItem) : 0}. New balance: {restockItem ? itemBalance(restockItem)+restockQty : 0}</p><Label>Additional quantity</Label><NumInput value={restockQty} onChange={setRestockQty} min={0}/><Label>Received date</Label><Input type="date" value={restockDate} onChange={e=>setRestockDate(e.target.value)}/><Label>Notes</Label><Textarea value={restockNotes} onChange={e=>setRestockNotes(e.target.value)}/><Button disabled={restockBusy || restockQty<=0 || !restockDate} onClick={()=>void submitRestock()}>{restockBusy ? "Saving…" : "Save restock"}</Button></DialogContent></Dialog>
       <Dialog open={sellOpen} onOpenChange={setSellOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -1016,9 +1054,13 @@ function Row({
 /* ------------------------------ Sales list ------------------------------ */
 
 function SalesTab() {
-  const sales = useConsignment((s) => s.sales);
-  const items = useConsignment((s) => s.items);
-  const owners = useConsignment((s) => s.owners);
+  const { ownerId: scopedOwner } = useSelectedConsignmentOwner();
+  const allsales = useConsignment((s) => s.sales);
+  const sales = useMemo(() => allsales.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allsales, scopedOwner]);
+  const allitems = useConsignment((s) => s.items);
+  const items = useMemo(() => allitems.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allitems, scopedOwner]);
+  const allowners = useConsignment((s) => s.owners);
+  const owners = useMemo(() => allowners.filter(x => scopedOwner === "all" || x.id === scopedOwner), [allowners, scopedOwner]);
   const user = useCurrentUser();
   const showCommission = user?.role === "admin";
   const [query, setQuery] = useState("");
@@ -1083,7 +1125,7 @@ function SalesTab() {
                   {formatDateTime(s.createdAt)}
                 </td>
                 <td className="px-3 py-2.5 font-medium">{it?.name ?? "(deleted)"}</td>
-                <td className="px-3 py-2.5 text-muted-foreground">{ow?.name ?? "—"}</td>
+                <td className="px-3 py-2.5 text-muted-foreground"><OwnerHistoryLink id={ow?.id} name={ow?.name ?? "—"} /></td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{s.qty}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">
                   {formatCurrency(s.unitPrice)}
@@ -1115,14 +1157,21 @@ function SalesTab() {
 /* ------------------------------ Settlements ------------------------------ */
 
 function SettlementsTab({ canSettle }: { canSettle: boolean }) {
-  const owners = useConsignment((s) => s.owners);
-  const items = useConsignment((s) => s.items);
-  const sales = useConsignment((s) => s.sales);
-  const settlements = useConsignment((s) => s.settlements);
+  const { ownerId: scopedOwner } = useSelectedConsignmentOwner();
+  const allowners = useConsignment((s) => s.owners);
+  const owners = useMemo(() => allowners.filter(x => scopedOwner === "all" || x.id === scopedOwner), [allowners, scopedOwner]);
+  const allitems = useConsignment((s) => s.items);
+  const items = useMemo(() => allitems.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allitems, scopedOwner]);
+  const allsales = useConsignment((s) => s.sales);
+  const sales = useMemo(() => allsales.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allsales, scopedOwner]);
+  const allsettlements = useConsignment((s) => s.settlements);
+  const settlements = useMemo(() => allsettlements.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allsettlements, scopedOwner]);
   const recordSettlement = useConsignment((s) => s.recordSettlement);
-  const currentUser = useCurrentUser();
-  const drawers = useCashDrawers((s) => s.drawers);
-  const addCashUsed = useCashDrawers((s) => s.addCashUsed);
+  const requestId=useRef(crypto.randomUUID());
+  const submitting=useRef(false);
+  const [busy,setBusy]=useState(false);
+  const [adjustsId,setAdjustsId]=useState<string | undefined>();
+  const [cashAction,setCashAction]=useState("linked_drawer");
 
   const [open, setOpen] = useState(false);
   const [ownerId, setOwnerId] = useState("");
@@ -1136,6 +1185,7 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
   const [historyTo, setHistoryTo] = useState("");
 
   const openNew = (ownerIdInit?: string, suggestedAmount?: number): void => {
+    requestId.current=crypto.randomUUID(); setAdjustsId(undefined); setCashAction("linked_drawer");
     setOwnerId(ownerIdInit ?? "");
     setAmount(suggestedAmount ?? 0);
     setPaymentMethod("cash");
@@ -1146,38 +1196,16 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
   };
 
   const submit = async (): Promise<void> => {
-    if (!ownerId) {
-      toast.error("Choose an owner");
-      return;
-    }
-    if (amount <= 0) {
-      toast.error("Amount must be greater than 0");
-      return;
-    }
-    const r = await recordSettlement({
-      ownerId,
-      amount,
-      paymentMethod,
-      periodFrom: periodFrom || undefined,
-      periodTo: periodTo || undefined,
-      notes,
-    });
-    if (r) {
-      if (paymentMethod.trim().toLowerCase() === "cash") {
-        const openDrawer = drawers.find((d) => d.status === "open");
-        if (openDrawer) {
-          addCashUsed(currentUser?.id ?? "", amount);
-        } else {
-          toast.warning(
-            "Payment saved, but no cash drawer is open to record the cash payout."
-          );
-        }
-      }
-      toast.success("Owner payment recorded and balance updated.");
-      setOpen(false);
-    } else {
-      toast.error("Failed");
-    }
+    if(submitting.current)return;
+    if(!ownerId || !Number.isFinite(amount) || amount===0 || (!adjustsId && amount<0)) {toast.error("Choose an owner and valid amount");return;}
+    if(adjustsId && !notes.trim()){toast.error("Correction reason is required");return;}
+    submitting.current=true;setBusy(true);
+    try {
+      const r=await recordSettlement({requestId:requestId.current,adjustsId,cashAction,ownerId,amount,paymentMethod,periodFrom:periodFrom||undefined,periodTo:periodTo||undefined,notes});
+      if(!r)throw new Error("Payment was not saved");
+      toast.success(paymentMethod === "cash" && (!adjustsId || cashAction === "linked_drawer") ? "Owner balance and POS cash payout updated" : "Owner ledger updated");setOpen(false);
+    }catch(e){toast.error(e instanceof Error?e.message:"Payment failed");}
+    finally{submitting.current=false;setBusy(false);}
   };
 
   const ownerBalances = owners.map((o) => ({
@@ -1228,7 +1256,7 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
           >
             <div className="flex items-start justify-between">
               <div>
-                <div className="text-sm font-bold">{owner.name}</div>
+                <OwnerHistoryLink id={owner.id} name={owner.name} />
                 {owner.phone && (
                   <div className="text-xs text-muted-foreground">{owner.phone}</div>
                 )}
@@ -1319,7 +1347,7 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
                     {formatDateTime(s.paidAt)}
                   </td>
                   <td className="px-3 py-2.5">
-                    <div className="font-medium">{owner?.name ?? "—"}</div>
+                    <div className="font-medium"><OwnerHistoryLink id={owner?.id} name={owner?.name ?? "—"} /></div>
                     <div className="text-xs text-muted-foreground">{owner?.phone || "No phone"}</div>
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums font-semibold">
@@ -1335,7 +1363,7 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
                     {s.notes || "—"}
                   </td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground">
-                    {s.userName ?? "—"}
+                    {s.userName ?? "—"}{s.adjustsId && <div>Correction of {s.adjustsId.slice(0,8)}</div>}{canSettle && !s.adjustsId && <Button size="sm" variant="outline" onClick={()=>{openNew(s.ownerId,0);setAdjustsId(s.id);setPaymentMethod(s.paymentMethod ?? "cash");}}>Correct</Button>}
                   </td>
                 </tr>
               );
@@ -1348,12 +1376,12 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Record settlement</DialogTitle>
+            <DialogTitle>{adjustsId ? "Correct settlement" : "Record settlement"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3">{adjustsId && <><p className="text-sm">Enter the difference: negative to reduce the payment, positive to increase it. The original remains in history.</p><Label>Cash treatment</Label><Select value={cashAction} onValueChange={setCashAction}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="linked_drawer">Update original open POS drawer</SelectItem><SelectItem value="ledger_only">Owner ledger only — cash is already correct</SelectItem></SelectContent></Select><p className="text-xs text-muted-foreground">Use ledger only for a duplicate record when cash was paid once. It does not change any cash or bank balance. Closed-drawer cash differences require a separate finance correction.</p></>}
             <div>
               <Label>Owner *</Label>
-              <Select value={ownerId} onValueChange={setOwnerId}>
+              <Select value={ownerId} onValueChange={setOwnerId} disabled={!!adjustsId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select owner" />
                 </SelectTrigger>
@@ -1368,20 +1396,17 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label>Amount paid *</Label>
+                <Label>{adjustsId ? "Adjustment amount (+/−) *" : "Amount paid *"}</Label>
                 <NumInput
                   value={amount}
                   onChange={setAmount}
-                  min={0}
+                  min={adjustsId ? undefined : 0}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 />
               </div>
               <div>
                 <Label>Method</Label>
-                <Input
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                />
+                <Select value={paymentMethod} onValueChange={setPaymentMethod} disabled={!!adjustsId}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="cash">Cash (POS drawer)</SelectItem><SelectItem value="bank">Bank transfer</SelectItem></SelectContent></Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -1415,7 +1440,7 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void submit()}>Save payment</Button>
+            <Button disabled={busy} onClick={() => void submit()}>Save payment</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1426,11 +1451,18 @@ function SettlementsTab({ canSettle }: { canSettle: boolean }) {
 /* ------------------------------ Returns ------------------------------ */
 
 function ReturnsTab({ canManage }: { canManage: boolean }) {
-  const items = useConsignment((s) => s.items);
-  const owners = useConsignment((s) => s.owners);
-  const returns = useConsignment((s) => s.returns);
+  const { ownerId: scopedOwner } = useSelectedConsignmentOwner();
+  const allitems = useConsignment((s) => s.items);
+  const items = useMemo(() => allitems.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allitems, scopedOwner]);
+  const allowners = useConsignment((s) => s.owners);
+  const owners = useMemo(() => allowners.filter(x => scopedOwner === "all" || x.id === scopedOwner), [allowners, scopedOwner]);
+  const allreturns = useConsignment((s) => s.returns);
+  const returns = useMemo(() => allreturns.filter(x => scopedOwner === "all" || x.ownerId === scopedOwner), [allreturns, scopedOwner]);
   const recordReturn = useConsignment((s) => s.recordReturn);
 
+  const requestId=useRef(crypto.randomUUID());
+  const lock=useRef(false);
+  const [busy,setBusy]=useState(false);
   const [open, setOpen] = useState(false);
   const [itemId, setItemId] = useState("");
   const [qty, setQty] = useState(1);
@@ -1469,13 +1501,18 @@ function ReturnsTab({ canManage }: { canManage: boolean }) {
       toast.error("Invalid return quantity");
       return;
     }
-    const r = await recordReturn({ itemId, qty, notes });
+    if(lock.current)return;
+    lock.current=true;setBusy(true);
+    try {
+    const r = await recordReturn({ requestId:requestId.current,itemId, qty, notes });
     if (r) {
       toast.success("Return recorded");
       setOpen(false);
     } else {
       toast.error("Failed");
     }
+    }catch(e){toast.error(e instanceof Error?e.message:"Return failed");}
+    finally{lock.current=false;setBusy(false);}
   };
 
   return (
@@ -1487,6 +1524,7 @@ function ReturnsTab({ canManage }: { canManage: boolean }) {
         {canManage && (
           <Button
             onClick={() => {
+              requestId.current=crypto.randomUUID();
               setItemId("");
               setQty(1);
               setNotes("");
@@ -1538,7 +1576,7 @@ function ReturnsTab({ canManage }: { canManage: boolean }) {
                   </td>
                   <td className="px-3 py-2.5 font-medium">{it?.name ?? "(deleted)"}</td>
                   <td className="px-3 py-2.5 text-muted-foreground">{ow?.name ?? "—"}</td>
-                  <td className="px-3 py-2.5 text-right tabular-nums">{r.qty}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{r.qty}<div className="text-xs">{r.returnValue == null ? "Historical value not recorded" : formatCurrency(r.returnValue)}</div></td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground">
                     {r.notes ?? "—"}
                   </td>
@@ -1599,7 +1637,7 @@ function ReturnsTab({ canManage }: { canManage: boolean }) {
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={() => void submit()}>Save return</Button>
+            <Button disabled={busy} onClick={() => void submit()}>Save return</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

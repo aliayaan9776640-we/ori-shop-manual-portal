@@ -205,6 +205,9 @@ export const useDropdowns = create<DropdownState>()(
       },
       add: async (groupKey, label, value) => {
         const v = (value && value.length > 0 ? value : slug(label)) || label;
+        if (get().options.some(o => o.groupKey === groupKey && o.value === v)) {
+          throw new Error("This dropdown value is already used. Choose a unique value.");
+        }
         const sortOrder =
           get().options.filter((o) => o.groupKey === groupKey).length;
         if (!isSupabaseConfigured) {
@@ -251,6 +254,10 @@ export const useDropdowns = create<DropdownState>()(
         await get().load();
       },
       update: async (id, patch) => {
+        const current = get().options.find(o => o.id === id);
+        if (current && patch.value !== undefined && get().options.some(o => o.id !== id && o.groupKey === current.groupKey && o.value === patch.value)) {
+          throw new Error("This dropdown value is already used. Choose a unique value.");
+        }
         if (!isSupabaseConfigured || id.startsWith("local-")) {
           set((s) => ({
             options: s.options.map((o) => (o.id === id ? { ...o, ...patch } : o)),
