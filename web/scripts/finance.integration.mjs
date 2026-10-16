@@ -204,6 +204,18 @@ await post('cash_expense',20);await post('bank_expense',10,receiving);
 assert.deepEqual(await balances(),{cash:restored.cash+2100,bank:restored.bank-10},'Manual actions still debit precisely');
 const correctedHistory=(await db.query('select finance_cash_history() data')).rows[0].data;
 assert.equal(correctedHistory.entries[0].balance_after,(await balances()).cash,'Restoration is included in cash history');
+const beforeNet=await balances();
+await db.exec(await readFile(new URL('../supabase/migrations/0055_reconcile_net_cash.sql',import.meta.url),'utf8'));
+assert.deepEqual(await balances(),{cash:beforeNet.cash-autoDebits-1300,bank:beforeNet.bank},'Undo restoration and exclude float for interim full-count closing');
+const netBaseline=await balances();
+await db.exec("insert into cash_drawers(id,opening_cash) values('net-count',100)");
+assert.deepEqual(await balances(),netBaseline,'Opening does not deduct float twice');
+await db.exec("update cash_drawers set status='closed',counted_cash=250,cash_used=80,closed_at=now() where id='net-count'");
+assert.equal((await balances()).cash,netBaseline.cash+150,'Count less opening, do not subtract cash-out twice');
+await db.exec("update cash_drawers set status='approved' where id='net-count'");
+assert.equal((await balances()).cash,netBaseline.cash+150,'Approving does not recredit');
+await db.exec(await readFile(new URL('../supabase/migrations/0055_reconcile_net_cash.sql',import.meta.url),'utf8'));
+assert.equal((await balances()).cash,netBaseline.cash+150,'Reconciliation retry is idempotent');
 await db.close();
 console.log('PASS: setup, history cutoff, drawer cash, approval deduplication, float carry-forward, deposits, expenses, settlement fees, retries, overdrafts, immutability, validation and admin-only database access.');
 
