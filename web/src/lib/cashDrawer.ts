@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { writeAudit } from "@/lib/audit";
 import { fetchAllRows } from "@/lib/fetchAllRows";
@@ -673,6 +673,14 @@ export const useCashDrawers = create<CashDrawerState>()(
     }),
     {
       name: "ori-cash-drawers",
+      // Supabase is authoritative online. A full browser storage area must
+      // never turn a committed drawer save into an apparent failed save.
+      // Do not hydrate old local snapshots over the current server state.
+      storage: createJSONStorage(() => isSupabaseConfigured ? {
+        getItem: () => null,
+        setItem: () => {},
+        removeItem: () => {},
+      } : localStorage),
       partialize: (state) => ({ drawers: state.drawers }),
     }
   )
